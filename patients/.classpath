@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<classpath>
+	<classpathentry kind="con" path="MULE_LIB/org.mule.connectors/mule-sockets-connector/1.2.0"/>
+	<classpathentry kind="con" path="MULE_LIB/com.mulesoft.connectors/mule-amazon-s3-connector/5.6.0"/>
+	<classpathentry kind="con" path="MULE_LIB/8db5810f-1022-47cc-856e-2156f651647f/S37-multi-tenancy-router-basic/1.0.1"/>
+	<classpathentry kind="con" path="MULE_LIB/org.mule.connectors/mule-db-connector/1.8.1"/>
+	<classpathentry kind="con" path="MULE_LIB/8db5810f-1022-47cc-856e-2156f651647f/common-error-handler/1.0.0"/>
+	<classpathentry kind="con" path="org.mule.tooling.API_SPEC_LIB/8db5810f-1022-47cc-856e-2156f651647f/science37-raml-library/1.0.21"/>
+	<classpathentry kind="con" path="org.mule.tooling.API_SPEC_LIB/8db5810f-1022-47cc-856e-2156f651647f/patient-api/1.0.21"/>
+	<classpathentry kind="con" path="MULE_LIB/com.mulesoft.connectors/mule-amazon-dynamodb-connector/1.4.0"/>
+	<classpathentry kind="con" path="MULE_LIB/com.mulesoft.modules/mule-secure-configuration-property-module/1.2.3"/>
+	<classpathentry kind="con" path="MULE_LIB/org.mule.connectors/mule-http-connector/1.5.19"/>
+	<classpathentry kind="con" path="MULE_LIB/com.mulesoft.munit/munit-tools/2.2.5"/>
+	<classpathentry kind="con" path="MULE_LIB/com.mulesoft.munit/munit-runner/2.2.5"/>
+	<classpathentry kind="con" path="MULE_LIB/org.mule.modules/mule-apikit-module/1.3.12"/>
+	<classpathentry kind="con" path="MULE_LIB/8db5810f-1022-47cc-856e-2156f651647f/aws-kms-connector/1.0.0"/>
+	<classpathentry kind="con" path="MULE_LIB/8db5810f-1022-47cc-856e-2156f651647f/json-logger/1.0.0"/>
+	<classpathentry kind="con" path="org.mule.tooling.MULE_PROJECT_LIB"/>
+	<classpathentry kind="con" path="MULE_LIB/org.mule.modules/mule-validation-module/1.4.0"/>
+	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
+	<classpathentry kind="src" path="src/main/mule"/>
+	<classpathentry kind="src" path="src/main/java"/>
+	<classpathentry kind="src" path="src/main/resources"/>
+	<classpathentry kind="src" output="target/test-classes" path="src/test/java"/>
+	<classpathentry kind="src" output="target/test-classes" path="src/test/resources"/>
+	<classpathentry kind="src" path="src/test/munit"/>
+	<classpathentry exported="true" kind="con" path="MULE_RUNTIME/org.mule.tooling.server.4.3.0.ee"/>
+	<classpathentry kind="output" path="target/classes"/>
+</classpath>

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:dynamodb="http://www.mulesoft.org/schema/mule/dynamodb"
+	xmlns:s3="http://www.mulesoft.org/schema/mule/s3"
+	xmlns:S37-multi-tenant-router-basic="http://www.mulesoft.org/schema/mule/S37-multi-tenant-router-basic"
+	xmlns:S37-multi-tenant-router="http://www.mulesoft.org/schema/mule/S37-multi-tenant-router"
+	xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns:kafka="http://www.mulesoft.org/schema/mule/kafka"
+	xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit"
+	xmlns:api-gateway="http://www.mulesoft.org/schema/mule/api-gateway" xmlns:json-logger="http://www.mulesoft.org/schema/mule/json-logger" xmlns:tls="http://www.mulesoft.org/schema/mule/tls" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:secure-properties="http://www.mulesoft.org/schema/mule/secure-properties" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd 
+http://www.mulesoft.org/schema/mule/api-gateway http://www.mulesoft.org/schema/mule/api-gateway/current/mule-api-gateway.xsd 
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/secure-properties http://www.mulesoft.org/schema/mule/secure-properties/current/mule-secure-properties.xsd
+http://www.mulesoft.org/schema/mule/tls http://www.mulesoft.org/schema/mule/tls/current/mule-tls.xsd
+http://www.mulesoft.org/schema/mule/json-logger http://www.mulesoft.org/schema/mule/json-logger/current/mule-json-logger.xsd
+http://www.mulesoft.org/schema/mule/kafka http://www.mulesoft.org/schema/mule/kafka/current/mule-kafka.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/S37-multi-tenant-router http://www.mulesoft.org/schema/mule/S37-multi-tenant-router/current/mule-S37-multi-tenant-router.xsd
+http://www.mulesoft.org/schema/mule/S37-multi-tenant-router-basic http://www.mulesoft.org/schema/mule/S37-multi-tenant-router-basic/current/mule-S37-multi-tenant-router-basic.xsd
+http://www.mulesoft.org/schema/mule/s3 http://www.mulesoft.org/schema/mule/s3/current/mule-s3.xsd
+http://www.mulesoft.org/schema/mule/dynamodb http://www.mulesoft.org/schema/mule/dynamodb/current/mule-dynamodb.xsd">
+	<configuration-properties doc:name="Configuration properties" doc:id="b94ac72e-d435-4a35-a4e1-248c2b166b13" file="${mule.env}-config.yaml" doc:description="Deployment specific properties"/>
+	<json-logger:config name="JSON_Logger_Config" doc:name="JSON Logger Config" doc:id="d9887b77-f46a-4352-860f-9d94ba83f28c" disabledFields="${json.logger.disabledFields}" prettyPrint="${json.logger.prettyPrint}" logLocationInfo="${json.logger.locationInfo}"/>
+	<db:config name="Database_Config" doc:name="Database Config" doc:id="a2619bf5-5135-4b61-b191-3582e13144dc" >
+		<db:my-sql-connection host="#[vars.tenantDetails.dbHost]" port="3306" user="#[vars.tenantDetails.dbUser]" password="#[vars.tenantDetails.dbPassword]" database="#[vars.tenantDetails.dbName]" />
+	</db:config>
+	<secure-properties:config name="Secure_Properties_Config" doc:name="Secure Properties Config" doc:id="ed7ebe05-d70d-4b16-8836-bf8a5c4c6a76" file="${mule.env}-config.yaml" key="${encryption.key}"/>
+	<api-gateway:autodiscovery apiId="${api.id}" doc:name="API Autodiscovery" doc:id="0254834b-559a-4bf0-b456-01c63117dd8d" flowRef="api-main" />
+	
+	<!-- admin request -->
+	<http:request-config name="HTTP_Request_Configuration_Admin" doc:name="HTTP Request configuration" doc:id="dce3a92c-e30c-4139-8d9e-f254aff92c23" >
+		<http:request-connection  host="${admin.host}" port="${admin.port}" protocol="HTTPS">
+		</http:request-connection>
+	</http:request-config>
+	<S37-multi-tenant-router-basic:config name="S37_Multi_Tenant_Router_Basic_Config" doc:name="S37 Multi-Tenant Router Basic Config" doc:id="86c69b62-4478-4d0e-90bb-465e8c645f4a" accessKey="${secure::multiTenantRouter.accessKey}" secretKey="${secure::multiTenantRouter.secretKey}" awsRegion="${multiTenantRouter.region}"/>
+	<s3:config name="Amazon_S3_Configuration" doc:name="Amazon S3 Configuration" doc:id="f9fa3aad-68f0-419f-bfe8-afeaed3efee4" >
+		<s3:role-connection roleARN="#[vars.tenantDetails.awsRole]" accessKey="${secure::multiTenantRouter.accessKey}" secretKey="${secure::multiTenantRouter.secretKey}" region="${multiTenantRouter.region}" />
+	</s3:config>
+	<dynamodb:config name="Amazon_DynamoDB_Configuration" doc:name="Amazon DynamoDB Configuration" doc:id="7b2ecc60-67d8-49fb-965b-0fe06fab23d1" >
+		<dynamodb:role-connection roleARN="#[vars.tenantDetails.awsRole]" accessKey="${secure::multiTenantRouter.accessKey}" secretKey="${secure::multiTenantRouter.secretKey}" region="${multiTenantRouter.region}" />
+	</dynamodb:config>
+	<configuration-properties doc:name="Configuration properties" doc:id="44bbbbe0-5c48-4dc5-89d8-9332a434715c" file="git.properties" />
+</mule>

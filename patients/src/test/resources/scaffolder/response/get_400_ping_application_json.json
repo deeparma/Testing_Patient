@@ -1,0 +1,1 @@
+{"success": false,"correlationId": "a001a2b0-4f3a-11e9-9736-6a1e061063f6","timestamp": "2019-03-25T13:14:42.369-07:00","results": [{"success": false,"statusSet": [{"code": 400,"descriptor": "Required header client_secret not specified","message": "There was an issue with your request message."}]}]}

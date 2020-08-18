@@ -1,0 +1,231 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:munit="http://www.mulesoft.org/schema/mule/munit" xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xsi:schemaLocation="
+		http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+		http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+		http://www.mulesoft.org/schema/mule/munit-tools  http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd">
+	<munit:config name="logic-test-suite-viewPatient.xml" />
+	<munit:test name="logic-test-suite-viewPatient-patientNotFound" doc:id="e712cad7-c912-49e1-a124-228fe10a5362" description="Test">
+		<munit:behavior >
+			<munit-tools:mock-when doc:name="Mock Select Patient Result" doc:id="feeadcdb-d44e-4d71-b324-8dac5ee9ecb1" processor="db:select">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="Select Patient" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="853d9d85-aa46-4509-8913-d13d6b5908a2" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="Database_Config" attributeName="config-ref" />
+					<munit-tools:with-attribute whereValue="selectPatientResult" attributeName="target" />
+				</munit-tools:with-attributes>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when doc:name="Mock Raise Error" doc:id="8606685f-d9c7-40bf-aa2b-45b2b8d1450b" processor="raise-error">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="Site/patient not found" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="937f8931-5896-4b57-99c4-27623eeae7cc" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="RESOURCE:NOT_FOUND" attributeName="type" />
+					<munit-tools:with-attribute whereValue="Site/patient not found" attributeName="description" />
+				</munit-tools:with-attributes>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution >
+			<munit:set-event doc:name="Set Event" doc:id="d725c504-9ca1-4d50-99c4-f8c6673a4232" >
+				<munit:attributes value="#[{uriParams:{'siteId':'1','patientId':'1'}}++{queryParams:{'limit':100,'start':1,'sort':'id:asc'}}]" />
+				<munit:variables >
+					<munit:variable key="assignedRoles" value='#[["Sponsor"]]' />
+					<munit:variable key="assignedSites" value='#[["1"]]' />
+					<munit:variable key="assignedTrials" value='#[["1"]]' />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref doc:name="Flow-ref to get:\platform\sites\(siteId)\patients\(patientId):api-config" doc:id="509dda15-3ed1-464d-aff2-a0814eb9e6ba" name="get:\platform\sites\(siteId)\patients\(patientId):api-config"/>
+		</munit:execution>
+		<munit:validation >
+			<munit-tools:verify-call doc:name="Verify call" doc:id="7c108e41-4d1a-4abc-9984-9379fc68b36a" processor="raise-error" times="1">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="Site/patient not found" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="937f8931-5896-4b57-99c4-27623eeae7cc" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="RESOURCE:NOT_FOUND" attributeName="type" />
+					<munit-tools:with-attribute whereValue="Site/patient not found" attributeName="description" />
+				</munit-tools:with-attributes>
+			</munit-tools:verify-call>
+		</munit:validation>
+	</munit:test>
+	
+	<munit:test name="logic-test-suite-viewPatient-forSponsor" doc:id="752d8a5e-b16e-462f-a616-8e5010431d24" description="Test">
+		<munit:behavior >
+			<munit-tools:mock-when doc:name="Mock Select Patient Result" doc:id="baba2ef7-7e4e-493f-8a54-ee8ddef33935" processor="db:select">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="Select Patient" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="853d9d85-aa46-4509-8913-d13d6b5908a2" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="Database_Config" attributeName="config-ref" />
+					<munit-tools:with-attribute whereValue="selectPatientResult" attributeName="target" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return >
+					<munit-tools:payload value="#[MunitTools::getResourceAsString('GET/viewPatient/selectPatientResult.json')]" />
+					<munit-tools:variables >
+						<munit-tools:variable key="selectPatientResult" value="#[MunitTools::getResourceAsString('GET/viewPatient/selectPatientResult.json')]" mediaType="application/json" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution >
+			<munit:set-event doc:name="Set Event" doc:id="26df3ec9-34ee-4f06-95af-301a94f895ea" >
+				<munit:attributes value="#[{uriParams:{'siteId':'1','patientId':'1'}}++{queryParams:{'limit':100,'start':1,'sort':'id:asc'}}]" />
+				<munit:variables >
+					<munit:variable key="assignedRoles" value='#[["Sponsor"]]' />
+					<munit:variable key="assignedSites" value='#[["1"]]' />
+					<munit:variable key="assignedTrials" value='#[["1"]]' />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref doc:name="Flow-ref to get:\platform\sites\(siteId)\patients\(patientId):api-config" doc:id="5ea3145e-294a-4648-9435-e7f6791964fa" name="get:\platform\sites\(siteId)\patients\(patientId):api-config"/>
+		</munit:execution>
+		<munit:validation >
+			<munit-tools:verify-call doc:name="Verify call" doc:id="c475bdda-8256-4929-972e-4e4e29179916" processor="ee:transform" times="1">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="Sponsor_Transform Message" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="160cd469-2534-4880-9b05-942f32433def" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+			</munit-tools:verify-call>
+		</munit:validation>
+	</munit:test>
+	
+	<munit:test name="logic-test-suite-viewPatient-forInvestigator" doc:id="344bc71d-5e80-4c2d-82bf-85e8a50ca35b" description="Test">
+		<munit:behavior >
+			<munit-tools:mock-when doc:name="Mock Select Patient Result" doc:id="74cc273d-1777-4c5d-b6d2-e3d57c178267" processor="db:select">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="Select Patient" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="853d9d85-aa46-4509-8913-d13d6b5908a2" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="Database_Config" attributeName="config-ref" />
+					<munit-tools:with-attribute whereValue="selectPatientResult" attributeName="target" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return >
+					<munit-tools:payload value="#[MunitTools::getResourceAsString('GET/viewPatient/selectPatientResult.json')]" />
+					<munit-tools:variables >
+						<munit-tools:variable key="selectPatientResult" value="#[MunitTools::getResourceAsString('GET/viewPatient/selectPatientResult.json')]" mediaType="application/json" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution >
+			<munit:set-event doc:name="Set Event" doc:id="812f5721-777d-4128-98b0-08e85aeb866c" >
+				<munit:attributes value="#[{uriParams:{'siteId':'1','patientId':'1'}}++{queryParams:{'limit':100,'start':1,'sort':'id:asc'}}]" />
+				<munit:variables >
+					<munit:variable key="assignedRoles" value='#[["Investigator"]]' />
+					<munit:variable key="assignedSites" value='#[["1"]]' />
+					<munit:variable key="assignedTrials" value='#[["1"]]' />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref doc:name="Flow-ref to get:\platform\sites\(siteId)\patients\(patientId):api-config" doc:id="31e9d5bc-ff54-4809-b3b7-e619aa9f0959" name="get:\platform\sites\(siteId)\patients\(patientId):api-config"/>
+		</munit:execution>
+		<munit:validation >
+			<munit-tools:verify-call doc:name="Verify call" doc:id="23d5cc1d-f4b3-442a-ab3b-d77581e93977" processor="ee:transform" times="1">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="7ea7f3e1-ce4b-4a48-ba01-ad0f2a682ad4" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+			</munit-tools:verify-call>
+		</munit:validation>
+	</munit:test>
+	
+	<munit:test name="logic-test-suite-viewPatient-contactNotFound" doc:id="a6c18342-ae59-479c-8c77-89513f5be1cc" description="Test">
+		<munit:behavior >
+			<munit-tools:mock-when doc:name="Mock Select Patient Result" doc:id="1316e3f2-925a-4375-9573-d1dc7b955125" processor="db:select">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="Select Patient" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="853d9d85-aa46-4509-8913-d13d6b5908a2" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="Database_Config" attributeName="config-ref" />
+					<munit-tools:with-attribute whereValue="selectPatientResult" attributeName="target" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return >
+					<munit-tools:payload value="#[MunitTools::getResourceAsString('GET/viewPatient/selectPatientResult.json')]" />
+					<munit-tools:variables >
+						<munit-tools:variable key="selectPatientResult" value="#[MunitTools::getResourceAsString('GET/viewPatient/selectPatientResult.json')]" mediaType="application/json" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when doc:name="Mock Select Contact Result" doc:id="0eb34c01-033f-4ed2-8442-d30062d3205c" processor="db:select">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="Select Patient Contacts" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="86cb18b2-b7e7-434a-81bb-58f751b5acdc" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="Database_Config" attributeName="config-ref" />
+					<munit-tools:with-attribute whereValue="selectContactResult" attributeName="target" />
+				</munit-tools:with-attributes>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when doc:name="Mock when" doc:id="6dbf4803-c680-4c99-be75-4b538f6f4aaa" processor="raise-error">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="Not a patient contact" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="ade9f36c-501a-4cac-872d-b4818bdafb4c" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="Not a patient contact" attributeName="description" />
+					<munit-tools:with-attribute whereValue="RESOURCE:FORBIDDEN" attributeName="type" />
+				</munit-tools:with-attributes>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution >
+			<munit:set-event doc:name="Set Event" doc:id="609cf94f-8cc6-47d6-929c-194baed390a8" >
+				<munit:attributes value="#[{uriParams:{'siteId':'1','patientId':'1'}}++{queryParams:{'limit':100,'start':1,'sort':'id:asc'}}]" />
+				<munit:variables >
+					<munit:variable key="assignedRoles" value='#[["Nurse"]]' />
+					<munit:variable key="assignedSites" value='#[["1"]]' />
+					<munit:variable key="assignedTrials" value='#[["1"]]' />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref doc:name="Flow-ref to get:\platform\sites\(siteId)\patients\(patientId):api-config" doc:id="c34dde0f-548f-4972-b863-306a31c8dcd3" name="get:\platform\sites\(siteId)\patients\(patientId):api-config"/>
+		</munit:execution>
+		<munit:validation >
+			<munit-tools:verify-call doc:name="Verify call" doc:id="0cccb9a7-ed65-4754-864c-c66714e18a6f" processor="raise-error" times="1">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="Not a patient contact" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="ade9f36c-501a-4cac-872d-b4818bdafb4c" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="Not a patient contact" attributeName="description" />
+					<munit-tools:with-attribute whereValue="RESOURCE:FORBIDDEN" attributeName="type" />
+				</munit-tools:with-attributes>
+			</munit-tools:verify-call>
+		</munit:validation>
+	</munit:test>
+	
+	<munit:test name="logic-test-suite-viewPatient-forNurse" doc:id="3b5d20a8-e7f0-4284-aee8-48f2d35a1766" description="Test">
+		<munit:behavior >
+			<munit-tools:mock-when doc:name="Mock Select Patient Result" doc:id="6365bcb5-9b4d-4236-adba-13e0141f303c" processor="db:select">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="Select Patient" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="853d9d85-aa46-4509-8913-d13d6b5908a2" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="Database_Config" attributeName="config-ref" />
+					<munit-tools:with-attribute whereValue="selectPatientResult" attributeName="target" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return >
+					<munit-tools:payload value="#[MunitTools::getResourceAsString('GET/viewPatient/selectPatientResult.json')]" />
+					<munit-tools:variables >
+						<munit-tools:variable key="selectPatientResult" value="#[MunitTools::getResourceAsString('GET/viewPatient/selectPatientResult.json')]" mediaType="application/json" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when doc:name="Mock Select Contact Result" doc:id="aeaff051-4b64-4989-aafa-91d8d1a353c4" processor="db:select">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="Select Patient Contacts" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="86cb18b2-b7e7-434a-81bb-58f751b5acdc" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="Database_Config" attributeName="config-ref" />
+					<munit-tools:with-attribute whereValue="selectContactResult" attributeName="target" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return >
+					<munit-tools:payload value="#[MunitTools::getResourceAsString('GET/viewPatient/selectPatientContactResult.json')]" />
+					<munit-tools:variables >
+						<munit-tools:variable key="selectContactResult" value="#[MunitTools::getResourceAsString('GET/viewPatient/selectPatientContactResult.json')]" mediaType="application/json" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution >
+			<munit:set-event doc:name="Set Event" doc:id="be8530d3-1ead-4c18-8db1-6946f943c02b" >
+				<munit:attributes value="#[{uriParams:{'siteId':'1','patientId':'1'}}++{queryParams:{'limit':100,'start':1,'sort':'id:asc'}}]" />
+				<munit:variables >
+					<munit:variable key="assignedRoles" value='#[["Nurse"]]' />
+					<munit:variable key="assignedSites" value='#[["1"]]' />
+					<munit:variable key="assignedTrials" value='#[["1"]]' />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref doc:name="Flow-ref to get:\platform\sites\(siteId)\patients\(patientId):api-config" doc:id="cd897b9b-1956-44fc-b3cf-557f8ce304ce" name="get:\platform\sites\(siteId)\patients\(patientId):api-config"/>
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert equals" doc:id="62defdeb-6b91-46a1-8f9b-c406218a7a2d" actual="#[payload]" expected="#[readUrl('classpath://GET/viewPatient/expectedViewPatientResult.json')]"/>
+		</munit:validation>
+	</munit:test>
+
+</mule>

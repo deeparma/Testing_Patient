@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:S37-multi-tenant-router="http://www.mulesoft.org/schema/mule/S37-multi-tenant-router" xmlns:S37-multi-tenant-router-basic="http://www.mulesoft.org/schema/mule/S37-multi-tenant-router-basic" xmlns:api-gateway="http://www.mulesoft.org/schema/mule/api-gateway" xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:error-handler-plugin="http://www.mulesoft.org/schema/mule/error-handler-plugin" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:json-logger="http://www.mulesoft.org/schema/mule/json-logger" xmlns:min-log="http://www.mulesoft.org/schema/mule/min-log" xmlns:spring="http://www.springframework.org/schema/beans" xmlns:tls="http://www.mulesoft.org/schema/mule/tls" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation=" http://www.mulesoft.org/schema/mule/tls http://www.mulesoft.org/schema/mule/tls/current/mule-tls.xsd http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd  http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd  http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd     http://www.mulesoft.org/schema/mule/api-gateway http://www.mulesoft.org/schema/mule/api-gateway/current/mule-api-gateway.xsd  http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-3.1.xsd     http://www.mulesoft.org/schema/mule/min-log http://www.mulesoft.org/schema/mule/min-log/current/mule-min-log.xsd http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd http://www.mulesoft.org/schema/mule/error-handler-plugin http://www.mulesoft.org/schema/mule/error-handler-plugin/current/mule-error-handler-plugin.xsd http://www.mulesoft.org/schema/mule/json-logger http://www.mulesoft.org/schema/mule/json-logger/current/mule-json-logger.xsd http://www.mulesoft.org/schema/mule/S37-multi-tenant-router http://www.mulesoft.org/schema/mule/S37-multi-tenant-router/current/mule-S37-multi-tenant-router.xsd http://www.mulesoft.org/schema/mule/S37-multi-tenant-router-basic http://www.mulesoft.org/schema/mule/S37-multi-tenant-router-basic/current/mule-S37-multi-tenant-router-basic.xsd">
+    <apikit:config name="api-config" api="resource::8db5810f-1022-47cc-856e-2156f651647f:patient-api:1.0.21:raml:zip:patient-api.raml" outboundHeadersMapName="outboundHeaders" httpStatusVarName="httpStatus" />
+    <configuration-properties doc:name="Configuration properties" doc:id="638afb11-60b5-4b36-9cdd-c55402d40fdc" file="common.yaml" />
+    <http:listener-config name="api-httpListenerConfig" doc:description="This is not used if a shared domain is configured in the listener..in that case remove this config to prevent this port from showing in the server's port scan." doc:name="HTTP Listener config">
+        <http:listener-connection host="0.0.0.0" port="${https.port}" protocol="HTTPS">
+            <tls:context>
+                <tls:key-store type="jks" path="httplistener.jks" keyPassword="changeit" password="changeit" />
+            </tls:context>
+        </http:listener-connection>
+    </http:listener-config>
+    <global-property doc:name="Global Property" doc:id="c87f8c05-37b2-4728-be1a-22932e0cb2e6" name="pagination.defaultLimit" value="100" />
+    <flow name="api-main">
+        <http:listener path="/${api.base}/${api.semantic.version}/*" doc:name="Listener" config-ref="api-httpListenerConfig">
+            <http:response statusCode="#[vars['httpStatusCode'] default 200]" reasonPhrase="#[vars['reasonPhrase']]">
+                <http:headers><![CDATA[#[output application/java
+---
+{
+	"x-correlation-id" : vars.'x-transaction-id'
+}]]]></http:headers>
+            </http:response>
+            <http:error-response statusCode="#[vars['httpStatusCode'] default 500]" reasonPhrase="#[vars['reasonPhrase']]">
+                <http:body><![CDATA[#[payload]]]></http:body>
+            </http:error-response>
+        </http:listener>
+        <ee:transform doc:name="Capture CorrelationId, ClientId, and Transaction ID" doc:id="27261704-4285-43ac-acb7-0c140c6289c3">
+            <ee:message />
+            <ee:variables>
+                <ee:set-variable variableName="x-transaction-id"><![CDATA[%dw 2.0
+	output application/java
+	---
+	attributes['headers']['x-correlation-id'] default correlationId]]></ee:set-variable>
+                <ee:set-variable variableName="client_id"><![CDATA[%dw 2.0
+	output application/java
+	---
+	attributes['headers']['client_id'] default  null]]></ee:set-variable>
+                <ee:set-variable variableName="correlationId"><![CDATA[%dw 2.0
+output application/json
+var s37correlationId = attributes.headers."s37-correlation-id" default ''
+var s37traceId = attributes.headers."s37-client-trace-id" default ''
+var tenantId = attributes.headers.tenantId default ''
+
+var finalCorrelationId = if(s37correlationId != '') s37correlationId
+                         else if (s37traceId != '') ("patients-api" ++ "|" ++ p('mule.env') ++ "|" ++ tenantId ++ "|" ++ s37traceId ++ "|" ++ (now() as String)++ "|" ++ uuid())
+                         else ("patients-api" ++ "|" ++ p('mule.env') ++ "|" ++ tenantId ++ "|" ++ (now() as String) ++ "|" ++ uuid())
+
+---
+finalCorrelationId]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <ee:transform doc:name="System Properties" doc:id="c1414611-1baa-4548-84a9-a0dc416282c4">
+            <ee:message />
+            <ee:variables>
+                <ee:set-variable variableName="systemProperty"><![CDATA[%dw 2.0
+import java!java::lang::System
+output application/java
+---
+System::setProperty("correlationId", vars.correlationId)]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <set-variable value="#[%dw 2.0 var queryStringArrayList = attributes.queryString splitBy (&quot;&amp;&quot;) var partialSearchCriteria = queryStringArrayList filter (value, index) -&gt; ((value contains(&quot;filter[partial]&quot;))) --- if (isEmpty(partialSearchCriteria)) &quot;&quot; else (partialSearchCriteria[0] splitBy(&quot;=&quot;))[1]]" doc:name="Capture partial serach criteria" doc:id="bdc571f7-4a88-4e09-bf1c-3f3fab613861" variableName="partialSearchString" />
+        <S37-multi-tenant-router-basic:get-tenant-details doc:name="Get tenant details" doc:id="331d51f5-00c5-4257-b2da-d3495dda46f6" config-ref="S37_Multi_Tenant_Router_Basic_Config" tableName="${multiTenantRouter.masterTable}" tenantId="#[attributes.headers.tenantId default '']" target="tenantDetails" />
+        <ee:transform doc:name="Set tenant Details" doc:id="e27836a1-2cff-45b6-8117-db41062a7cd5">
+            <ee:message />
+            <ee:variables>
+                <ee:set-variable variableName="tenantDetails"><![CDATA[%dw 2.0
+output application/json
+var sessionPermissions = if (isEmpty(attributes.headers.sessionPermissions)) "[]" else attributes.headers.sessionPermissions
+var tenantRoles = if (isEmpty(attributes.headers.tenantRoles)) "[]" else attributes.headers.tenantRoles
+---
+vars.tenantDetails ++
+{
+  "sub":  attributes.headers.sub default '',
+  "dbHost": attributes.headers.dbHost default '',
+  "dbName": p('mule.env') ++ '/' ++ attributes.headers.tenantId ++ "/patients",
+  "awsRole": attributes.headers.awsRole default '',
+  "sessionPermissions": sessionPermissions,
+  "tenantRoles": tenantRoles
+}]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <ee:transform doc:name="Get assigned trials, sites and roles" doc:id="1941167f-ed80-4592-bbd4-ced2a17c3398">
+            <ee:message />
+            <ee:variables>
+                <ee:set-variable variableName="assignedTrials"><![CDATA[%dw 2.0
+output application/java
+/*
+ * Returns an array of unique non-empty trial ids that are found in the
+ * tenantRoles header value (from JWT)
+ */
+var tenantRolesArray = read(vars.tenantDetails.tenantRoles, "application/json")
+var tenantRoles = tenantRolesArray map((item) -> (item splitBy ('/'))[0])
+---
+tenantRoles filter((item) -> (sizeOf(trim(item)) > 0)) distinctBy $]]></ee:set-variable>
+                <ee:set-variable variableName="assignedSites"><![CDATA[%dw 2.0
+output application/java
+/*
+ * Returns an array of unique non-empty site ids that are found in the
+ * tenantRoles header value (from JWT)
+ */
+var tenantRoles = read(vars.tenantDetails.tenantRoles, "application/json")
+var siteIds = tenantRoles map((item) -> (item splitBy ('/'))[1])
+---
+siteIds filter((item) -> (sizeOf(trim(item)) > 0)) distinctBy $]]></ee:set-variable>
+                <ee:set-variable variableName="assignedRoles"><![CDATA[%dw 2.0
+output application/java
+/*
+ * Returns an array of unique non-empty site ids that are found in the
+ * tenantRoles header value (from JWT)
+ */
+var tenantRoles = read(vars.tenantDetails.tenantRoles, "application/json")
+var roles = tenantRoles map((item) -> (item splitBy ('/'))[2])
+---
+roles filter((item) -> (sizeOf(trim(item)) > 0)) distinctBy $]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        <apikit:router doc:name="APIkit Router" config-ref="api-config" />
+        <error-handler>
+            <on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="67d602a8-c5e7-4334-884c-174b22db2839">
+                <error-handler-plugin:on-error doc:name="On error" doc:id="ef149065-d544-4181-83d0-721c7f0bdc0e" errorTypes="VALIDATION:EMPTY_COLLECTION, RESOURCE:NOT_FOUND, RESOURCE:FORBIDDEN, RESOURCE:DUPE, APP:BAD_REQUEST" errorCodes="404, 404, 403, 409, 400" errorMessages="Result not found, Resource not found, Resource Forbidden, Duplicated Resource, Bad Request">
+                    <error-handler-plugin:custom-error-json><![CDATA[#[vars['customErrorJSON']]]]></error-handler-plugin:custom-error-json>
+                </error-handler-plugin:on-error>
+                <set-payload value="#[payload]" doc:name="errorPayload" doc:id="fe6b6e5f-9d66-4502-b6ea-aa31ba816846" mimeType="application/json" />
+                <set-variable value="#[attributes['httpStatusCode']]" doc:name="Set Variable" doc:id="e70a55b5-6d17-47e0-a95a-0839f8ac6839" variableName="httpStatusCode" />
+                <json-logger:logger doc:name="Logger" doc:id="44ec720c-9789-4001-8c30-7d02b703e1b2" priority="ERROR" tracePoint="EXCEPTION" message="#[output text/plain --- if(vars['client_id'] == null) payload.results[0].statusSet[0].descriptor  else payload.results[0].statusSet[0].descriptor ++ 'for the client-id'  ++ vars['client_id'] as String]" target="jsonLogger" config-ref="JSON_Logger_Config" correlationId="#[vars['x-transaction-id']]" httpStatusCode="#[if(vars['httpStatusCode'] !=null) vars['httpStatusCode'] else attributes['httpStatusCode'] default &quot;&quot;]">
+                    <json-logger:exception-detail errorCode="#[payload.results[0].statusSet[0].code]" />
+                </json-logger:logger>
+            </on-error-continue>
+        </error-handler>
+    </flow>
+</mule>

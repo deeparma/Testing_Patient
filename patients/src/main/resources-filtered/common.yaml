@@ -1,0 +1,19 @@
+http:
+  port: "8080"
+api:
+  base: "api"
+  semantic:
+    version: "v1"
+  port: "8092"
+json:
+  logger:
+    prettyPrint: "false"
+    locationInfo: "true"
+    # Modify timestamp dateformat / timezone
+    # - DateTime: Defaults to ISO format
+    # - TimeZone: Defaults to UTC. Refer to https://en.wikipedia.org/wiki/List_of_tz_database_time_zones for valid timezones
+    #dateformat: "yyyy-MM-dd HH:mm:ss.SSS"
+    #timezone: "US/Eastern"
+    application:
+      name: "${project.artifactId}"
+      version: "${project.version}"

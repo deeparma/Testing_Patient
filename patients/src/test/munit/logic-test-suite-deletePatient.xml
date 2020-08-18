@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:munit="http://www.mulesoft.org/schema/mule/munit" xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xsi:schemaLocation="
+		http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+		http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+		http://www.mulesoft.org/schema/mule/munit-tools  http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd">
+	<munit:config name="logic-test-suite-deletePatient.xml" />
+	<munit:test name="logic-test-suite-deletePatient-patientNotFound" doc:id="5a0f2338-b4f1-4b70-a8e9-c394f269c177" description="Test">
+		<munit:behavior >
+			<munit-tools:mock-when doc:name="Mock Select Patient Result" doc:id="d147d3a4-baa9-437d-a647-4dbdf41ff61f" processor="db:select">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="Select Patient" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="13d58576-c0b1-406b-b983-6386dc29c54e" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="Database_Config" attributeName="config-ref" />
+					<munit-tools:with-attribute whereValue="selectPatientResult" attributeName="target" />
+				</munit-tools:with-attributes>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when doc:name="Mock when" doc:id="8635b434-a958-4ad8-b1a2-5571c01e00c9" processor="raise-error">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="Site/patient not found" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="076f102d-4585-4c28-9391-305bab0c17b8" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="RESOURCE:NOT_FOUND" attributeName="type" />
+					<munit-tools:with-attribute whereValue="Site/patient not found" attributeName="description" />
+				</munit-tools:with-attributes>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution >
+			<munit:set-event doc:name="Set Event" doc:id="8f5c1626-1885-4d54-a70b-fc027ed7cdf8" >
+				<munit:attributes value="#[{uriParams:{'siteId':'1','patientId':'1'}}]" />
+			</munit:set-event>
+			<flow-ref doc:name="Flow-ref to delete:\platform\sites\(siteId)\patients\(patientId):api-config" doc:id="c1ac70b5-d435-4c7c-b722-9d190a413abf" name="delete:\platform\sites\(siteId)\patients\(patientId):api-config"/>
+		</munit:execution>
+		<munit:validation >
+			<munit-tools:verify-call doc:name="Verify call" doc:id="0f4ee0da-52f5-442b-87a6-cac182fb7ed0" processor="raise-error" times="1">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="Site/patient not found" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="076f102d-4585-4c28-9391-305bab0c17b8" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="RESOURCE:NOT_FOUND" attributeName="type" />
+					<munit-tools:with-attribute whereValue="Site/patient not found" attributeName="description" />
+				</munit-tools:with-attributes>
+			</munit-tools:verify-call>
+		</munit:validation>
+	</munit:test>
+	
+	<munit:test name="logic-test-suite-deletePatient-errorScenario" doc:id="744b4b78-1e33-4a3d-b0b6-40ad476056d1" description="Test">
+		<munit:behavior >
+			<munit-tools:mock-when doc:name="Mock Select Patient Result" doc:id="2ec00d56-248f-4d63-8a45-fd6040a50f10" processor="db:select">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="Select Patient" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="13d58576-c0b1-406b-b983-6386dc29c54e" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="Database_Config" attributeName="config-ref" />
+					<munit-tools:with-attribute whereValue="selectPatientResult" attributeName="target" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return >
+					<munit-tools:payload value="#[MunitTools::getResourceAsString('GET/viewPatient/selectPatientResult.json')]" />
+					<munit-tools:variables >
+						<munit-tools:variable key="selectPatientResult" value="#[MunitTools::getResourceAsString('GET/viewPatient/selectPatientResult.json')]" mediaType="application/json" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when doc:name="Mock Delete Patient Result" doc:id="3e62c6be-1a52-4edb-b049-3feccc48a619" processor="db:delete">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="Delete Patient" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="7ee2746b-3698-4378-b8c7-1d14bc31b6ea" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="Database_Config" attributeName="config-ref" />
+					<munit-tools:with-attribute whereValue="deletePatientResult" attributeName="target" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return >
+					<munit-tools:error typeId="DB:CONNECTIVITY" />
+					<munit-tools:variables >
+						<munit-tools:variable key="deletePatientResult" value="#[output application/java --- 1]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when doc:name="Mock Admin API Delete Patient" doc:id="547db2c0-1d91-4b4a-8121-02221fe63ce9" processor="http:request">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="DELETE" attributeName="method" />
+					<munit-tools:with-attribute whereValue="Admin API Delete Patient" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="1f19533b-3a13-494a-a8fe-b6a00a0746f0" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="NEVER" attributeName="sendBodyMode" />
+				</munit-tools:with-attributes>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution >
+			<munit:set-event doc:name="Set Event" doc:id="9282c46a-dc42-4fa4-b29e-8a18b6845ffd" >
+				<munit:attributes value="#[{uriParams:{'siteId':'1','patientId':'1'}}]" />
+			</munit:set-event>
+			<try doc:name="Try" doc:id="b510eee0-aa66-429d-b084-d30c38cd8801" >
+				<flow-ref doc:name="Flow-ref to delete:\platform\sites\(siteId)\patients\(patientId):api-config" doc:id="eebbe0c6-ce8f-4f72-95a1-74574534f3a8" name="delete:\platform\sites\(siteId)\patients\(patientId):api-config" />
+				<error-handler >
+					<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="6feccd4f-a1a2-49d7-84c8-40ca12729039" type="DB:CONNECTIVITY"/>
+				</error-handler>
+			</try>
+		</munit:execution>
+		<munit:validation >
+			<munit-tools:verify-call doc:name="Verify call" doc:id="dc6765b2-e899-4660-9646-d008698b3258" processor="logger" times="1">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="ERROR" attributeName="level" />
+					<munit-tools:with-attribute whereValue="Logger" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="af1b68d4-3565-4ffd-bdfc-b50d00e18e3d" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="#[payload]" attributeName="message" />
+				</munit-tools:with-attributes>
+			</munit-tools:verify-call>
+		</munit:validation>
+	</munit:test>
+	
+	<munit:test name="logic-test-suite-deletePatient" doc:id="ecb3b678-d19c-4b96-9e79-d3cc99f0ebb4" description="Test" ignore="true">
+		<munit:behavior >
+			<munit-tools:mock-when doc:name="Mock Select Patient Result" doc:id="c426d2f3-b816-432f-9b5a-a4f6ed9eb921" processor="db:select">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="Select Patient" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="13d58576-c0b1-406b-b983-6386dc29c54e" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="Database_Config" attributeName="config-ref" />
+					<munit-tools:with-attribute whereValue="selectPatientResult" attributeName="target" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return >
+					<munit-tools:payload value="#[MunitTools::getResourceAsString('GET/viewPatient/selectPatientResult.json')]" />
+					<munit-tools:variables >
+						<munit-tools:variable key="selectPatientResult" value="#[MunitTools::getResourceAsString('GET/viewPatient/selectPatientResult.json')]" mediaType="application/json" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when doc:name="Mock Delete" doc:id="1e068285-72b4-466d-815e-2c8649e8b537" processor="db:delete">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="Delete Patient" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="7ee2746b-3698-4378-b8c7-1d14bc31b6ea" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="Database_Config" attributeName="config-ref" />
+					<munit-tools:with-attribute whereValue="ALWAYS_JOIN" attributeName="transactionalAction" />
+					<munit-tools:with-attribute whereValue="deletePatientResult" attributeName="target" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return >
+					<munit-tools:payload value="#[MunitTools::getResourceAsString('POST/createPatient/insertPatientResult.json')]" />
+					<munit-tools:variables >
+						<munit-tools:variable key="deletePatientResult" value="#[MunitTools::getResourceAsString('POST/createPatient/insertPatientResult.json')]" mediaType="application/json" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when doc:name="Mock Admin API Delete Patient" doc:id="0d4358d5-5465-4d19-a4d7-554ff5a56117" processor="http:request">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="DELETE" attributeName="method" />
+					<munit-tools:with-attribute whereValue="Admin API Delete Patient" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="1f19533b-3a13-494a-a8fe-b6a00a0746f0" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="NEVER" attributeName="sendBodyMode" />
+				</munit-tools:with-attributes>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution >
+			<munit:set-event doc:name="Set Event" doc:id="2dcf130d-07e9-4895-bbe9-d008a4305edb" >
+				<munit:attributes value="#[{uriParams:{'siteId':'1','patientId':'1'}}]" />
+			</munit:set-event>
+			<flow-ref doc:name="Flow-ref to delete:\platform\sites\(siteId)\patients\(patientId):api-config" doc:id="05219162-30d1-4cfa-8e05-28e8f643a75e" name="delete:\platform\sites\(siteId)\patients\(patientId):api-config" />
+		</munit:execution>
+		<munit:validation >
+			<munit-tools:verify-call doc:name="Verify call" doc:id="cfec318f-ce14-4c06-b522-a702fd96b980" processor="logger" times="1">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="ERROR" attributeName="level" />
+					<munit-tools:with-attribute whereValue="Logger" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="af1b68d4-3565-4ffd-bdfc-b50d00e18e3d" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="#[payload]" attributeName="message" />
+				</munit-tools:with-attributes>
+			</munit-tools:verify-call>
+		</munit:validation>
+	</munit:test>
+
+</mule>

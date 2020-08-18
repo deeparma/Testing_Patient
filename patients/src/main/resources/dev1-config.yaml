@@ -1,0 +1,31 @@
+https:
+  port: "8081"
+api:
+  id: "16176134"
+  base: "api"
+  semantic:
+    version: "v1"
+  port: "8092"
+json:
+  logger:
+    disabledFields: ""
+    prettyPrint: "false"
+    locationInfo: "true"
+    # Modify timestamp dateformat / timezone
+    # - DateTime: Defaults to ISO format
+    # - TimeZone: Defaults to UTC. Refer to https://en.wikipedia.org/wiki/List_of_tz_database_time_zones for valid timezones
+    #dateformat: "yyyy-MM-dd HH:mm:ss.SSS"
+    #timezone: "US/Eastern"
+    application:
+      name: "8db5810f-1022-47cc-856e-2156f651647f"
+      version: "1.0.0"
+multiTenantRouter:
+  accessKey: "![DYlNDcvPsdNi13P06l49wM8Lohmfbl+QmUfT3Q19890=]"
+  secretKey: "![zDZYotJ9VZb9jDIAMaD+px1wd6H/gmT0JnijWb5Xfh+6WvMRuD/8k2mhUi33c1VR]"
+  region: "us-west-2"
+  masterTable: "dev1-tenants-catalog"
+  
+admin:
+  host: "saas-api-dev1.s37dev.com"
+  port: "443"
+  basePath: "/platform"

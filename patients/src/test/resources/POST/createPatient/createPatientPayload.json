@@ -1,0 +1,22 @@
+{
+  "email": "amit.taneja+patient3@email.com",
+  "firstName": "Amit",
+  "lastName": "Taneja",
+  "middleInitial": "",
+  "suffix": "",
+  "gender": "male",
+  "state": "TX",
+  "mobileNumber": "1234567890",
+  "birthDate": "1969-01-01",
+  "preferredNotificationTime": "11:00:00",
+  "timeZone": "US/Central",
+  "meetingId": "123",
+  "trialId": "11313620-e3b3-4002-8ab7-bce46bc0acce",
+  "subjectNumber": "Subject-04",
+  "screeningNumber": "Screen-04",
+  "startDate": "2020-08-01",
+  "endDate": "2021-03-01",
+  "isWithdrawn": false,
+  "isCompleted": false,
+  "isInactive": false
+}

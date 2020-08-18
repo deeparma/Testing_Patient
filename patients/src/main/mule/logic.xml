@@ -1,0 +1,1542 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:validation="http://www.mulesoft.org/schema/mule/validation"
+	xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking"
+	xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns:json-logger="http://www.mulesoft.org/schema/mule/json-logger"
+	xmlns:scripting="http://www.mulesoft.org/schema/mule/scripting" xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:min-log="http://www.mulesoft.org/schema/mule/min-log" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+	http://www.mulesoft.org/schema/mule/min-log http://www.mulesoft.org/schema/mule/min-log/current/mule-min-log.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/scripting http://www.mulesoft.org/schema/mule/scripting/current/mule-scripting.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/json-logger http://www.mulesoft.org/schema/mule/json-logger/current/mule-json-logger.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd
+http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd">
+
+	<flow name="get:\platform\patients\version:api-config">
+        <ee:transform xsi:schemaLocation="http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"healthy": true,
+	"uptime": p('git.build.time'),
+	"pom_version": p('git.build.version'),
+	"env": p('mule.env'),
+	"git_dirty": p('git.dirty'),
+	"git_branch": p('git.branch'),
+	"git_commitSha": p('git.commit.id.full')
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+    </flow>
+	<flow name="get:\platform\sites\(siteId)\patients:api-config">
+	<set-variable value='#[(read(attributes.headers.sessionRoles, "application/json")) distinctBy $]' doc:name="Session Roles" doc:id="d0f423cc-93b8-43b7-8832-5161735856f9" variableName="sessionRoles" />
+		<flow-ref doc:name="mySQLBaseParams" doc:id="d86130ba-7895-4244-a21d-5208b4fb020a" name="mySQLBaseParams"/>
+		<ee:transform doc:name="Set sql sort" doc:id="49129af5-5141-48b4-a57f-37a7bff3459a">
+			<ee:message>
+			</ee:message>
+			<ee:variables>
+				<ee:set-variable variableName="sortInputParams"><![CDATA[%dw 2.0
+output application/json
+
+var sortCriteria = if (['id','email','firstName', 'lastName', 'isCompleted', 'isWithdrawn'] contains(vars.sort.criteria))
+	vars.sort.criteria
+else
+	'id'
+
+var sortDirection = if (['asc','desc'] contains(vars.sort.direction))
+	vars.sort.direction
+else
+	'asc'
+
+---
+{
+	"criteria": sortCriteria,
+	"direction": sortDirection
+}]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<set-variable value='#[(sizeOf(vars.sessionRoles) == 1) and (vars.sessionRoles[0] == "Sponsor")]' doc:name="isSponsor" doc:id="954ced09-b552-4835-a866-226150d3f3cd" variableName="isSponsor" />
+		<ee:transform doc:name="Set sql where clause for filters" doc:id="86bbe501-9ba5-40d5-927b-1001d6bd6b37">
+			<ee:message>
+			</ee:message>
+			<ee:variables>
+				<ee:set-variable variableName="filterWhereClause"><![CDATA[%dw 2.0
+output application/json
+
+/**
+ * 1. filterObject will skip the "scope" and "contact" filters 
+ * as these will not be used in the where clause for Patient table.
+ * "scope" and "contact" filter will be used with StaffContacts table 
+ * join statement and we will be using a different variable "userId" 
+ * that will use value from these filters. 
+ * 
+ * 2. Returns a where clause string given a filter object
+ * 3. Returns an empty string if the filter object is empty
+ * 
+ * Example:
+ * 
+ * filterInputParams = {
+ *  "number": 123,
+ *  "isActive": true
+ * }
+ * 
+ * output = "number=:number and isActive=:isActive"
+ * 
+ */
+
+---
+vars.filterInputParams filterObject ((value, key, index) -> 
+key ~= 'startDate' or key ~= 'endDate' or key ~= 'isInactive' or key ~= 'partial'
+)mapObject ((value, key, index) ->
+if(key ~= 'startDate') 
+    'key': 'p.createdAt' ++ '>=' ++ '\'' ++ value ++ ' 00:00:00\''
+else
+    if(key ~= 'endDate') 
+    'key': 'p.createdAt' ++ '<=' ++ '\'' ++ value ++ ' 23:59:59\''
+    else
+    	if(key ~= 'partial')
+    		if(vars.isSponsor == true)
+	            'key': '(' ++ 'p.subjectNumber like ' ++ '\'%' ++ value ++ '%\'' ++ 
+	            ' or ' ++ 'p.uuid like ' ++ '\'%' ++ value ++ '%\'' ++
+	            ')'
+            else 
+		        'key': '(' ++ 'p.firstName like ' ++ '\'%' ++ value ++ '%\'' ++ 
+		        ' or ' ++ 'p.lastName like ' ++ '\'%' ++ value ++ '%\'' ++
+		        ' or ' ++ 'p.email like ' ++ '\'%' ++ value ++ '%\'' ++
+		        ' or ' ++ 'p.subjectNumber like ' ++ '\'%' ++ value ++ '%\'' ++
+		        ' or ' ++ 'p.uuid like ' ++ '\'%' ++ value ++ '%\'' ++
+		        ' or ' ++ 'p.mobileNumber like ' ++ '\'%' ++ value ++ '%\'' ++
+		        ')'
+        else
+    	'key': 'p.' ++ key ++ '=' ++ value
+)pluck $ joinBy ' and ' ]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+        
+        				<ee:transform doc:name="Set where clause for trialId and siteId" doc:id="ef45165c-325f-4f9e-bfe3-a1df65c2b615">
+					<ee:message>
+					</ee:message>
+					<ee:variables>
+						<ee:set-variable variableName="trialIdInClause"><![CDATA[%dw 2.0
+output application/java
+---
+vars.assignedTrials map ":arg$$" reduce ((item, accumulator) -> accumulator ++ ", " ++ item)
+]]></ee:set-variable>
+						<ee:set-variable variableName="trialIdInputParameter"><![CDATA[%dw 2.0
+output application/java
+---
+vars.assignedTrials map {"arg$$" : $} reduce ((item, accumulator = {}) -> item ++ accumulator)]]></ee:set-variable>
+				<ee:set-variable variableName="siteIdInputParameter" ><![CDATA[%dw 2.0
+output application/java
+---
+vars.assignedSites map {"arg$$" : $} reduce ((item, accumulator = {}) -> item ++ accumulator)]]></ee:set-variable>
+				<ee:set-variable variableName="siteIdInClause" ><![CDATA[%dw 2.0
+output application/java
+---
+vars.assignedSites map ":arg$$" reduce ((item, accumulator) -> accumulator ++ ", " ++ item)]]></ee:set-variable>
+					</ee:variables>
+				</ee:transform>
+				<set-variable value='#[%dw 2.0
+var contactFilter = if(isEmpty(vars.filterInputParams) == true)
+	false
+	else
+		if(vars.filterInputParams["contact"] != null)
+		  true
+		else
+		  false
+---
+contactFilter]' doc:name="isContactFilter" doc:id="840a40b6-e42b-42f6-a13f-6abd601dbc83" variableName="isContactFilter"/>
+		<set-variable value='#[%dw 2.0
+output application/java
+var patientFilter = if ((sizeOf(vars.sessionRoles) == 1) and (vars.sessionRoles[0] == "Nurse"))
+	true
+	else if(isEmpty(vars.filterInputParams) == true )
+	  false
+	else
+		if(vars.filterInputParams["scope"] == "patient")
+		  true
+		else
+		  false
+---
+patientFilter]' doc:name="isPatientFilter" doc:id="f0b78c87-1cdd-41ef-bff3-b02782e0abb1" variableName="isPatientFilter"/>
+		<choice doc:name="Check if patient/contact scope" doc:id="c521ca77-3c7c-4a5a-bcbb-2104778dd540" >
+			<when expression='#[vars.isContactFilter or vars.isPatientFilter]'>
+				<choice doc:name="Choice" doc:id="976e9b49-41b3-42c7-8e7c-fd318016f486">
+					<when expression="#[vars.isContactFilter and vars.isPatientFilter]">
+						<db:select doc:name="Select Patients with Contact and Patient Filter" doc:id="19357e6c-800c-473a-bd49-a361f1e2459b" config-ref="Database_Config" target="selectPatientAndContactFilterResult">
+							<db:sql >#[&quot;select p.* from Patients p
+inner join StaffContacts sc1 on p.id = sc1.patientId
+inner join StaffContacts sc2 on sc1.patientId = sc2.patientId
+and sc1.userUuid &lt;&gt; sc2.userUuid
+where sc1.userUuid = :contactUuid
+and sc2.userUuid = :patientFilterUuid
+and p.siteUuid = :siteId
+$(
+	if(not isBlank(vars.filterWhereClause))
+		'and  ' ++ vars.filterWhereClause
+	else
+		''
+)
+order by p.$(vars.sortInputParams.criteria) $(vars.sortInputParams.direction)
+limit :rowCount
+offset :offset&quot;]</db:sql>
+							<db:input-parameters ><![CDATA[#[vars.filterInputParams ++
+vars.paginationInputParams ++
+{
+	"contactUuid": vars.filterInputParams["contact"],
+	"patientFilterUuid": attributes.headers."user-uuid",
+	"siteId": attributes.uriParams.siteId
+}]]]></db:input-parameters>
+						</db:select>
+						<set-variable value="#[%dw 2.0
+output application/java
+---
+sizeOf(vars.selectPatientAndContactFilterResult)]" doc:name="Set selectPatientAndContactFilterResult" doc:id="ed05da90-339a-4dcd-84fb-a2b10e35fc3b" variableName="selectPatientAndContactFilterResultCount"/>
+						<ee:transform doc:name="Transform PatientAndContactFilter Result" doc:id="a4060557-7bab-404e-9d61-4c9a401edebf" >
+							<ee:message >
+								<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+var data = if (true == vars.isEmptyData)
+	[]
+else
+	vars.selectPatientAndContactFilterResult map ( payload01 , indexOfPayload01 ) -> {
+			id: payload01.uuid,
+			email: payload01.email,
+			firstName: payload01.firstName,
+			middleInitial: payload01.middleInitial,
+			lastName: payload01.lastName,
+			suffix: payload01.suffix,
+			gender: payload01.gender,
+			birthDate: if (null == payload01.birthDate) null else payload01.birthDate as String {format: "yyyy-MM-dd"},
+			mobileNumber: payload01.mobileNumber,
+			state: payload01.state,
+			preferredNotificationTime: if (null == payload01.preferredNotificationTime) null else payload01.preferredNotificationTime as String {format: "HH:mm:ss"},
+			timeZone: payload01.timeZone,
+			meetingId: payload01.meetingId,
+			trialId: payload01.trialUuid,
+			siteId: payload01.siteUuid,
+			subjectNumber: payload01.subjectNumber,
+			screeningNumber: payload01.screeningNumber,
+			startDate: if(null == payload01.startDate) null else payload01.startDate as String {format: "yyyy-MM-dd"},
+			endDate: if(null == payload01.endDate) null else payload01.endDate as String {format: "yyyy-MM-dd"},
+			isCompleted: (1 == payload01.isCompleted),
+			isWithdrawn: (1 == payload01.isWithdrawn),
+			isInactive: (1 == payload01.isInactive),
+			createdAt: payload01.createdAt as DateTime {format: "yyyy-MM-dd'T'HH:mm:ss.SSSX"},
+			createdBy: payload01.createdBy,
+			updatedAt: payload01.updatedAt as DateTime {format: "yyyy-MM-dd'T'HH:mm:ss.SSSX"},
+			updatedBy: payload01.updatedBy
+		}
+
+var total = if (true == vars.isEmptyData)
+	0
+else
+	vars.selectPatientAndContactFilterResultCount
+
+---
+{
+	data: data,
+	limit: vars.pagination.limit,
+	start: vars.pagination.start,
+	total: total
+}
+]]></ee:set-payload>
+							</ee:message>
+						</ee:transform>
+					</when>
+					<otherwise >
+						<set-variable value='#[%dw 2.0
+output application/json
+var uuid = if (vars.isContactFilter == true)
+  		vars.filterInputParams["contact"]
+  else
+  		attributes.headers."user-uuid"
+---
+uuid]' doc:name="Set userId of the contact" doc:id="78488fc7-7198-452b-9c5c-bdec6685d700" variableName="userId" />
+						<db:select doc:name="Select Patients with contact" doc:id="df8dc229-3006-43b1-ba94-8dcd0ba1be4b" config-ref="Database_Config" target="rawData">
+					<db:sql>#[&quot;select p.* from Patients p
+inner join StaffContacts sc on p.id = sc.patientId
+where sc.userUuid = :userId
+and p.siteUuid = :siteId
+$(
+	if(not isBlank(vars.filterWhereClause))
+		'and  ' ++ vars.filterWhereClause
+	else
+		''
+)
+order by p.$(vars.sortInputParams.criteria) $(vars.sortInputParams.direction)
+limit :rowCount
+offset :offset&quot;]</db:sql>
+					<db:input-parameters><![CDATA[#[vars.filterInputParams ++
+vars.paginationInputParams ++
+{
+	"userId": vars.userId,
+	"siteId": attributes.uriParams.siteId
+}]]]></db:input-parameters>
+				</db:select>
+						<db:select doc:name="Select Patient Count" doc:id="b7d5258b-dda5-49af-9300-ed98d7fe10fc" config-ref="Database_Config" target="rawCount">
+					<db:sql>#[&quot;select count(p.id) from Patients p
+inner join StaffContacts sc on p.id = sc.patientId
+where sc.userUuid = :userId
+and p.siteUuid = :siteId
+$(
+	if(not isBlank(vars.filterWhereClause))
+		'and  ' ++ vars.filterWhereClause
+	else
+		''
+)&quot;]</db:sql>
+					<db:input-parameters><![CDATA[#[vars.filterInputParams ++
+{
+	"userId": vars.userId,
+	"siteId": attributes.uriParams.siteId
+}]]]></db:input-parameters>
+				</db:select>
+						<ee:transform doc:name="Transform Message" doc:id="bcbb6075-6b80-4961-98d3-c503e56c1a90">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+var data = if (true == vars.isEmptyData)
+	[]
+else
+	vars.rawData map ( payload01 , indexOfPayload01 ) -> {
+			id: payload01.uuid,
+			email: payload01.email,
+			firstName: payload01.firstName,
+			middleInitial: payload01.middleInitial,
+			lastName: payload01.lastName,
+			suffix: payload01.suffix,
+			gender: payload01.gender,
+			birthDate: if (null == payload01.birthDate) null else payload01.birthDate as String {format: "yyyy-MM-dd"},
+			mobileNumber: payload01.mobileNumber,
+			state: payload01.state,
+			preferredNotificationTime: if (null == payload01.preferredNotificationTime) null else payload01.preferredNotificationTime as String {format: "HH:mm:ss"},
+			timeZone: payload01.timeZone,
+			meetingId: payload01.meetingId,
+			trialId: payload01.trialUuid,
+			siteId: payload01.siteUuid,
+			subjectNumber: payload01.subjectNumber,
+			screeningNumber: payload01.screeningNumber,
+			startDate: if(null == payload01.startDate) null else payload01.startDate as String {format: "yyyy-MM-dd"},
+			endDate: if(null == payload01.endDate) null else payload01.endDate as String {format: "yyyy-MM-dd"},
+			isCompleted: (1 == payload01.isCompleted),
+			isWithdrawn: (1 == payload01.isWithdrawn),
+			isInactive: (1 == payload01.isInactive),
+			createdAt: payload01.createdAt as DateTime {format: "yyyy-MM-dd'T'HH:mm:ss.SSSX"},
+			createdBy: payload01.createdBy,
+			updatedAt: payload01.updatedAt as DateTime {format: "yyyy-MM-dd'T'HH:mm:ss.SSSX"},
+			updatedBy: payload01.updatedBy
+		}
+
+var total = if (true == vars.isEmptyData)
+	0
+else
+	vars.rawCount[0][0]
+
+---
+{
+	data: data,
+	limit: vars.pagination.limit,
+	start: vars.pagination.start,
+	total: total
+}
+]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+					</otherwise>
+				</choice>
+			</when>
+			<otherwise >
+				<db:select doc:name="Select filter by siteIds" doc:id="9cb60349-424b-4751-9956-cdd5a0002bcf" config-ref="Database_Config" target="rawData">
+					<db:sql>#[&quot;select * from Patients p
+where p.siteUuid = :siteId
+$(
+	if(not isBlank(vars.filterWhereClause))
+		'and  ' ++ vars.filterWhereClause
+	else
+		''
+)
+order by $(vars.sortInputParams.criteria) $(vars.sortInputParams.direction)
+limit :rowCount
+offset :offset&quot;]</db:sql>
+					<db:input-parameters><![CDATA[#[vars.filterInputParams ++
+vars.paginationInputParams ++
+{
+	"siteId": attributes.uriParams.siteId
+}]]]></db:input-parameters>
+				</db:select>
+				<db:select doc:name="Count with filter" doc:id="8751ea45-9733-4a50-9aa5-cdc4bcaa8dff" config-ref="Database_Config" target="rawCount">
+							<db:sql>#[&quot;select count(id) as count from Patients p
+where p.siteUuid = :siteId
+$(
+	if(not isBlank(vars.filterWhereClause))
+		'and  ' ++ vars.filterWhereClause
+	else
+		''
+)
+&quot;]</db:sql>
+			<db:input-parameters><![CDATA[#[vars.filterInputParams ++
+{
+	"siteId": attributes.uriParams.siteId
+}]]]></db:input-parameters>
+						</db:select>
+				<choice doc:name="Check if Sponsor" doc:id="7e23f363-0edb-4166-8bf9-2e0454568571">
+			<when expression='#[vars.isSponsor]'>
+				<ee:transform doc:name="Sponsor_Transform Message" doc:id="a73dca63-5c99-4590-88a0-b1c3239db418" xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+var data = if (true == vars.isEmptyData)
+	[]
+else
+	vars.rawData map ( payload01 , indexOfPayload01 ) -> {
+			id: payload01.uuid,
+			subjectNumber: payload01.subjectNumber,
+			isCompleted: (1 == payload01.isCompleted),
+			isWithdrawn: (1 == payload01.isWithdrawn),
+			createdAt: payload01.createdAt as DateTime {format: "yyyy-MM-dd'T'HH:mm:ss.SSSX"},
+			createdBy: payload01.createdBy,
+			updatedAt: payload01.updatedAt as DateTime {format: "yyyy-MM-dd'T'HH:mm:ss.SSSX"},
+			updatedBy: payload01.updatedBy
+		}
+
+var total = if (true == vars.isEmptyData)
+	0
+else
+	vars.rawCount[0][0]
+
+---
+{
+	data: data,
+	limit: vars.pagination.limit,
+	start: vars.pagination.start,
+	total: total
+}
+]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</when>
+			<otherwise>
+				<ee:transform xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+            			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+var data = if (true == vars.isEmptyData)
+	[]
+else
+	vars.rawData map ( payload01 , indexOfPayload01 ) -> {
+			id: payload01.uuid,
+			email: payload01.email,
+			firstName: payload01.firstName,
+			middleInitial: payload01.middleInitial,
+			lastName: payload01.lastName,
+			suffix: payload01.suffix,
+			gender: payload01.gender,
+			birthDate: if (null == payload01.birthDate) null else payload01.birthDate as String {format: "yyyy-MM-dd"},
+			mobileNumber: payload01.mobileNumber,
+			state: payload01.state,
+			preferredNotificationTime: if (null == payload01.preferredNotificationTime) null else payload01.preferredNotificationTime as String {format: "HH:mm:ss"},
+			timeZone: payload01.timeZone,
+			meetingId: payload01.meetingId,
+			trialId: payload01.trialUuid,
+			siteId: payload01.siteUuid,
+			subjectNumber: payload01.subjectNumber,
+			screeningNumber: payload01.screeningNumber,
+			startDate: if(null == payload01.startDate) null else payload01.startDate as String {format: "yyyy-MM-dd"},
+			endDate: if(null == payload01.endDate) null else payload01.endDate as String {format: "yyyy-MM-dd"},
+			isCompleted: (1 == payload01.isCompleted),
+			isWithdrawn: (1 == payload01.isWithdrawn),
+			isInactive: (1 == payload01.isInactive),
+			createdAt: payload01.createdAt as DateTime {format: "yyyy-MM-dd'T'HH:mm:ss.SSSX"},
+			createdBy: payload01.createdBy,
+			updatedAt: payload01.updatedAt as DateTime {format: "yyyy-MM-dd'T'HH:mm:ss.SSSX"},
+			updatedBy: payload01.updatedBy
+		}
+
+var total = if (true == vars.isEmptyData)
+	0
+else
+	vars.rawCount[0][0]
+
+---
+{
+	data: data,
+	limit: vars.pagination.limit,
+	start: vars.pagination.start,
+	total: total
+}
+]]></ee:set-payload>
+			</ee:message>
+        </ee:transform>
+			</otherwise>
+		</choice>
+			</otherwise>
+		</choice>
+    </flow>
+    
+    <flow name="post:\platform\sites\(siteId)\patients:application\json:api-config">
+<set-variable value="#[uuid()]" doc:name="patientId" doc:id="ca156c40-c942-416e-91ba-a6bea55c659d" variableName="patientId"/>
+<db:select doc:name="Select Patient" doc:id="09e44035-1e33-413e-a3ab-629de901ab92" config-ref="Database_Config" target="selectPatientEmail">
+			<db:sql >#[&quot;select email from Patients
+where email = :email&quot;]</db:sql>
+			<db:input-parameters ><![CDATA[#[{
+	"email": payload.email
+}]]]></db:input-parameters>
+		</db:select>
+		<choice doc:name="check if email already exists" doc:id="bc9ee41c-284c-4c62-926c-9342cc0420a7" >
+			<when expression="#[isEmpty(vars.selectPatientEmail) == false]">
+				<raise-error doc:name="Patient already exists" doc:id="09295a2d-4ce2-4ac3-9061-19a4e1905f0e" type="RESOURCE:DUPE" description="Patient already exists"/>
+			</when>
+			<otherwise >
+				<try doc:name="Try" doc:id="89a56906-8bc9-4a87-abb5-89e3898f644d" transactionalAction="ALWAYS_BEGIN">
+ <db:insert doc:name="Insert Patient" doc:id="3a203322-7ad7-445d-8922-2e4f0c2522cd" config-ref="Database_Config" target="insertPatientResult" transactionalAction="ALWAYS_JOIN">
+ <db:sql>INSERT INTO `Patients`
+(
+`uuid`,`email`,`firstName`,`lastName`,`middleInitial`,`suffix`,`gender`,`birthDate`,`mobileNumber`,
+`state`,`preferredNotificationTime`,`timeZone`,`meetingId`,
+`trialUuid`,`siteUuid`,`subjectNumber`,`screeningNumber`,`startDate`,`endDate`, 
+`isCompleted`, `isWithdrawn`,`isInactive`,`createdBy`,`updatedBy`
+)
+
+SELECT :patientUuid, :email, :firstName, :lastName, :middleInitial, :suffix, :gender, :birthDate, :mobileNumber,
+:state, :preferredNotificationTime, :timeZone, :meetingId, :trialUuid, :siteUuid, :subjectNumber, :screeningNumber, 
+:startDate, :endDate, :isCompleted, :isWithdrawn, :isInactive, :createdBy, :updatedBy</db:sql>
+ <db:input-parameters><![CDATA[#[{
+"patientUuid": vars.patientId,
+"email": payload.email,
+"firstName": payload.firstName,
+"lastName": payload.lastName,
+"middleInitial": payload.middleInitial,
+"suffix": payload.suffix,
+"gender": payload.gender,
+"birthDate": payload.birthDate,
+"mobileNumber": payload.mobileNumber,
+"state": payload.state,
+"preferredNotificationTime": payload.preferredNotificationTime,
+"timeZone": payload.timeZone,
+"meetingId": payload.meetingId,
+"trialUuid": payload.trialId,
+"siteUuid": attributes.uriParams.siteId,
+"subjectNumber": payload.subjectNumber,
+"screeningNumber": payload.screeningNumber,
+"startDate": payload.startDate,
+"endDate": payload.endDate,
+"isCompleted": payload.isCompleted default false,
+"isWithdrawn": payload.isWithdrawn default false,
+"isInactive": payload.isInactive default false,
+"createdBy" : vars.tenantDetails.sub,
+"updatedBy" : vars.tenantDetails.sub
+
+}]]]></db:input-parameters>
+</db:insert>
+     <http:request method="POST" doc:name="Admin API Create Patient Request" doc:id="7d02d396-55f1-451a-b837-dc92d3fa63de" config-ref="HTTP_Request_Configuration_Admin" path="/${api.base}/${api.semantic.version}${admin.basePath}/admin/patients" sendCorrelationId="NEVER">
+       <http:body><![CDATA[#[%dw 2.0
+output application/json
+---
+{
+  "uuid": vars.patientId,
+  "firstName": payload.firstName,
+  "lastName": payload.lastName,
+  "email": payload.email,
+  "userName": vars.tenantDetails.oktaClientId ++ "-" ++ payload.email 
+}]]]></http:body>
+				<http:headers><![CDATA[#[%dw 2.0
+output application/json
+---
+{
+  "s37-correlation-id": vars.correlationId,
+  "sub":  attributes.headers.sub default '',
+  "dbHost": attributes.headers.dbHost default '',
+  "awsRole": attributes.headers.awsRole default '',
+  "sessionPermissions": attributes.headers.sessionPermissions default '',
+  "tenantRoles": attributes.headers.tenantRoles default '',
+  "tenantId": attributes.headers.tenantId default ''
+}]]]></http:headers>
+     </http:request>
+     <error-handler>
+       <on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="c2f4aabf-6a5e-4691-b360-23d502e9ad21">
+         <logger level="ERROR" doc:name="Logger" doc:id="c2e0c43e-1066-4f37-9093-4690f2ea2da5" message="#[payload]" />
+       </on-error-propagate>
+     </error-handler>
+</try>
+				<ee:transform doc:name="Transform Message" doc:id="9054844d-10e0-491d-a353-d833b230b3af">
+ <ee:message>
+   <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+correlationId: vars.correlationId,
+timestamp: now() as Number,
+id: vars.patientId
+}]]></ee:set-payload>
+ </ee:message>
+</ee:transform>
+				<set-variable value="201" doc:name="Set Response Code" doc:id="36915c53-daad-4021-83e2-a61b651a4dfe" variableName="httpStatusCode" />
+			</otherwise>
+		</choice>
+</flow>
+    <flow name="get:\platform\sites\(siteId)\patients\(patientId):api-config">
+		<set-variable value='#[(read(attributes.headers.sessionRoles, "application/json")) distinctBy $]' doc:name="Session Roles" doc:id="133d4bf9-501a-4a0f-8414-0b11f2168d7e" variableName="sessionRoles" />
+		<set-variable value="#[attributes.uriParams.patientId]" doc:name="Set patientId" doc:id="b85f2804-8009-4f24-a1b5-ea6cf9078430" variableName="patientId"/>
+		<set-variable value="#[attributes.uriParams.siteId]" doc:name="Set siteId" doc:id="bdef194f-aeb6-4182-83af-4a98dee3b909" variableName="siteId"/>
+		<db:select doc:name="Select Patient" doc:id="853d9d85-aa46-4509-8913-d13d6b5908a2" config-ref="Database_Config" target="selectPatientResult">
+			<db:sql>#[&quot;select *  from Patients where siteUuid = :siteId and uuid = :patientId&quot;]</db:sql>
+			<db:input-parameters><![CDATA[#[{
+	"siteId": vars.siteId,
+	"patientId": vars.patientId
+}]]]></db:input-parameters>
+		</db:select>
+		<choice doc:name="Choice" doc:id="dfca366a-07a2-41cc-b315-2aca37688a8b">
+					<when expression="#[isEmpty(vars.selectPatientResult) == true]" >
+				<raise-error doc:name="Site/patient not found" doc:id="937f8931-5896-4b57-99c4-27623eeae7cc" type="RESOURCE:NOT_FOUND" description="Site/patient not found"/>
+			</when>
+					<otherwise>
+						<choice doc:name="Check if user is Nurse" doc:id="0c04a6e2-430f-4992-af30-3aa0fd523615">
+			<when expression='#[(sizeOf(vars.sessionRoles) == 1) and (vars.sessionRoles[0] == "Nurse")]'>
+						<db:select doc:name="Select Patient Contacts" doc:id="86cb18b2-b7e7-434a-81bb-58f751b5acdc" config-ref="Database_Config" target="selectContactResult">
+							<db:sql >#[&quot;select sc.* from StaffContacts sc
+where patientId = :patientId
+and userUuid = :userId&quot;]</db:sql>
+							<db:input-parameters ><![CDATA[#[{
+	"patientId": vars.selectPatientResult[0].id,
+	"userId": attributes.headers."user-uuid"
+}]]]></db:input-parameters>
+						</db:select>
+						<choice doc:name="Choice" doc:id="4a9e31a7-c83d-4653-9313-adfaeb786e84" >
+							<when expression="#[isEmpty(vars.selectContactResult) == true]">
+								<raise-error doc:name="Not a patient contact" doc:id="ade9f36c-501a-4cac-872d-b4818bdafb4c" description="Not a patient contact" type="RESOURCE:FORBIDDEN"/>
+							</when>
+							<otherwise >
+								<ee:transform doc:name="Transform Message" doc:id="07c0bcad-9b8d-48f4-8540-da7d0e185185" >
+									<ee:message >
+										<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+var patient = vars.selectPatientResult[0]
+---
+{
+	id: patient.uuid,
+	email: patient.email,
+	firstName: patient.firstName,
+	middleInitial: patient.middleInitial,
+	lastName: patient.lastName,
+	suffix: patient.suffix,
+	gender: patient.gender,
+	birthDate: if(null == patient.birthDate) null else patient.birthDate as String {format: "yyyy-MM-dd"},
+	mobileNumber: patient.mobileNumber,
+	state: patient.state,
+	preferredNotificationTime: if (null == patient.preferredNotificationTime) null else patient.preferredNotificationTime as String {format: "HH:mm:ss"},
+	timeZone: patient.timeZone,
+	meetingId: patient.meetingId,
+	trialId: patient.trialUuid,
+	siteId: patient.siteUuid,
+	subjectNumber: patient.subjectNumber,
+	screeningNumber: patient.screeningNumber,
+	startDate: if (null == patient.startDate) null else patient.startDate as String {format: "yyyy-MM-dd"},
+	endDate: if (null == patient.endDate) null else patient.endDate as String {format: "yyyy-MM-dd"},
+	isCompleted: (1 == patient.isCompleted),
+	isWithdrawn: (1 == patient.isWithdrawn),
+	isInactive: (1 == patient.isInactive),
+	createdAt: patient.createdAt as DateTime {format: "yyyy-MM-dd'T'HH:mm:ss.SSSX"},
+	createdBy: patient.createdBy,
+	updatedAt: patient.updatedAt as DateTime {format: "yyyy-MM-dd'T'HH:mm:ss.SSSX"},
+	updatedBy: patient.updatedBy
+}]]></ee:set-payload>
+									</ee:message>
+								</ee:transform>
+							</otherwise>
+						</choice>
+			</when>
+					<otherwise>
+						<choice doc:name="Check if user is Sponsor" doc:id="6d6b1ea3-0b06-468a-87e6-7ed1e89f4854" >
+							<when expression='#[(sizeOf(vars.sessionRoles) == 1) and (vars.sessionRoles[0] == "Sponsor")]'>
+								<ee:transform doc:name="Sponsor_Transform Message" doc:id="160cd469-2534-4880-9b05-942f32433def" xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+var patient = vars.selectPatientResult[0]
+---
+{
+	id: patient.uuid,
+	subjectNumber: patient.subjectNumber,
+	isCompleted: (1 == patient.isCompleted),
+	isWithdrawn: (1 == patient.isWithdrawn),
+	createdAt: patient.createdAt as DateTime {format: "yyyy-MM-dd'T'HH:mm:ss.SSSX"},
+	createdBy: patient.createdBy,
+	updatedAt: patient.updatedAt as DateTime {format: "yyyy-MM-dd'T'HH:mm:ss.SSSX"},
+	updatedBy: patient.updatedBy
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+							</when>
+							<otherwise >
+								<ee:transform xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd 
+http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd 
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd" doc:id="7ea7f3e1-ce4b-4a48-ba01-ad0f2a682ad4">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+var patient = vars.selectPatientResult[0]
+---
+{
+	id: patient.uuid,
+	email: patient.email,
+	firstName: patient.firstName,
+	middleInitial: patient.middleInitial,
+	lastName: patient.lastName,
+	suffix: patient.suffix,
+	gender: patient.gender,
+	birthDate: if(null == patient.birthDate) null else patient.birthDate as String {format: "yyyy-MM-dd"},
+	mobileNumber: patient.mobileNumber,
+	state: patient.state,
+	preferredNotificationTime: if (null == patient.preferredNotificationTime) null else patient.preferredNotificationTime as String {format: "HH:mm:ss"},
+	timeZone: patient.timeZone,
+	meetingId: patient.meetingId,
+	trialId: patient.trialUuid,
+	siteId: patient.siteUuid,
+	subjectNumber: patient.subjectNumber,
+	screeningNumber: patient.screeningNumber,
+	startDate: if (null == patient.startDate) null else patient.startDate as String {format: "yyyy-MM-dd"},
+	endDate: if (null == patient.endDate) null else patient.endDate as String {format: "yyyy-MM-dd"},
+	isCompleted: (1 == patient.isCompleted),
+	isWithdrawn: (1 == patient.isWithdrawn),
+	isInactive: (1 == patient.isInactive),
+	createdAt: patient.createdAt as DateTime {format: "yyyy-MM-dd'T'HH:mm:ss.SSSX"},
+	createdBy: patient.createdBy,
+	updatedAt: patient.updatedAt as DateTime {format: "yyyy-MM-dd'T'HH:mm:ss.SSSX"},
+	updatedBy: patient.updatedBy
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+							</otherwise>
+						</choice>
+			</otherwise>
+			</choice>
+			</otherwise>
+		</choice>
+    </flow>
+	<flow name="put:\platform\sites\(siteId)\patients\(patientId):api-config" doc:id="e647dfec-80ed-4048-98b5-12dc36516741" >
+		<set-variable value="#[attributes.uriParams.patientId]" doc:name="Set patientId" doc:id="4770236e-e0dc-4768-a092-5e053daaac84" variableName="patientId"/>
+		<set-variable value="#[attributes.uriParams.siteId]" doc:name="Set siteId" doc:id="b5f3a046-9637-4622-bbb3-6e3386a2c0c4" variableName="siteId"/>
+		<db:select doc:name="Select Patient" doc:id="49b32f63-77f2-4d37-ad3f-27e8c903729e" config-ref="Database_Config" target="selectPatientResult">
+			<db:sql >#[&quot;select email, firstName, lastName from Patients
+where siteUuid = :siteId and uuid = :patientId&quot;
+]</db:sql>
+			<db:input-parameters ><![CDATA[#[{
+	"siteId": vars.siteId,
+	"patientId": vars.patientId
+}]]]></db:input-parameters>
+		</db:select>
+		<choice doc:name="Choice" doc:id="2dd5baa4-2a94-416b-af66-fda6e0161ef1" >
+			<when expression="#[isEmpty(vars.selectPatientResult) == true]">
+				<raise-error doc:name="Site/patient not found" doc:id="a00fecb5-f1b8-4b24-befa-2da581d9969b" type="RESOURCE:NOT_FOUND" description="Site/patient not found"/>
+			</when>
+			
+			<otherwise >
+				<try doc:name="Try" doc:id="5cd88a7f-c1e0-4846-9b76-08845058945e" transactionalAction="ALWAYS_BEGIN">
+					<db:update doc:name="Update Patient" doc:id="3da05296-57aa-48b1-90c1-8cabb03dbed0" transactionalAction="ALWAYS_JOIN" config-ref="Database_Config" target="updatePatientResult">
+						<db:sql >#[&quot;UPDATE Patients
+SET email = :email,
+firstName = :firstName,
+lastName = :lastName,
+middleInitial = :middleInitial,
+suffix = :suffix,
+gender = :gender,
+birthDate = :birthDate,
+mobileNumber = :mobileNumber,
+state = :state,
+preferredNotificationTime = :preferredNotificationTime,
+timeZone = :timeZone,
+meetingId = :meetingId,
+siteUuid = :siteUuid,
+subjectNumber = :subjectNumber,
+screeningNumber = :screeningNumber,
+startDate = :startDate,
+endDate = :endDate,
+isCompleted = :isCompleted,
+isWithdrawn = :isWithdrawn,
+isInactive = :isInactive,
+updatedBy = :updatedBy
+WHERE siteUuid = :siteId 
+AND uuid = :patientId&quot;]</db:sql>
+						<db:input-parameters ><![CDATA[#[{
+	"email": payload.email,
+	"firstName": payload.firstName,
+	"lastName": payload.lastName,
+	"middleInitial": payload.middleInitial,
+	"suffix": payload.suffix,
+	"gender": payload.gender,
+	"birthDate": payload.birthDate,
+	"mobileNumber": payload.mobileNumber,
+	"state": payload.state,
+	"preferredNotificationTime": payload.preferredNotificationTime,
+	"timeZone": payload.timeZone,
+	"meetingId": payload.meetingId,
+	"siteUuid": payload.siteId,
+	"subjectNumber": payload.subjectNumber,
+	"screeningNumber": payload.screeningNumber,
+	"startDate": payload.startDate,
+	"endDate": payload.endDate,
+	"isCompleted": payload.isCompleted,
+	"isWithdrawn": payload.isWithdrawn,
+	"isInactive": payload.isInactive,
+	"updatedBy" : vars.tenantDetails.sub,
+	"siteId": vars.siteId,
+	"patientId": vars.patientId
+}]]]></db:input-parameters>
+					</db:update>
+					<set-variable value='#[%dw 2.0
+output application/json
+---
+vars.tenantDetails.oktaClientId ++ "-" ++ vars.selectPatientResult[0].email]' doc:name="Set patientUserName" doc:id="adc849b1-c60f-4e47-b1ad-87f0fb768b1c" variableName="patientUserName" />
+					<http:request method="PUT" doc:name="Admin API Update Request" doc:id="a34a0f28-5350-4142-a451-4105f9f229b1" config-ref="HTTP_Request_Configuration_Admin" path="/${api.base}/${api.semantic.version}${admin.basePath}/admin/patients/{patientUserName}">
+						<http:body ><![CDATA[#[%dw 2.0
+output application/json
+---
+{
+  "firstName": payload.firstName,
+  "lastName": payload.lastName,
+  "email": payload.email,
+  "userName": vars.tenantDetails.oktaClientId ++ "-" ++ payload.email 
+}]]]></http:body>
+						<http:headers ><![CDATA[#[%dw 2.0
+output application/json
+---
+{
+  "s37-correlation-id": vars.correlationId,
+  "sub":  attributes.headers.sub default '',
+  "dbHost": attributes.headers.dbHost default '',
+  "awsRole": attributes.headers.awsRole default '',
+  "sessionPermissions": attributes.headers.sessionPermissions default '',
+  "tenantRoles": attributes.headers.tenantRoles default '',
+  "tenantId": attributes.headers.tenantId default ''
+}]]]></http:headers>
+						<http:uri-params ><![CDATA[#[output application/java
+---
+{
+	"patientUserName" : vars.patientUserName
+}]]]></http:uri-params>
+					</http:request>
+				</try>
+				<ee:transform doc:name="Transform Message" doc:id="e4dba993-1a84-4627-8137-a88d499639da" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+correlationId: vars.correlationId,
+timestamp: now() as Number,
+id: vars.patientId
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</otherwise>
+		</choice>
+	</flow>
+	<flow name="delete:\platform\sites\(siteId)\patients\(patientId):api-config">
+		<set-variable value="#[attributes.uriParams.patientId]" doc:name="Set patientId" doc:id="f0ead26c-b7cb-462d-9023-75bed72062db" variableName="patientId"/>
+		<set-variable value="#[attributes.uriParams.siteId]" doc:name="Set siteId" doc:id="ade42031-1efd-4b5c-9e1a-152f0526caa0" variableName="siteId"/>
+		<db:select doc:name="Select Patient" doc:id="13d58576-c0b1-406b-b983-6386dc29c54e" config-ref="Database_Config" target="selectPatientResult">
+			<db:sql >#[&quot;select email, firstName, lastName from Patients
+where siteUuid = :siteId and uuid = :patientId&quot;
+]</db:sql>
+			<db:input-parameters ><![CDATA[#[{
+	"siteId": vars.siteId,
+	"patientId": vars.patientId
+}]]]></db:input-parameters>
+		</db:select>
+		<choice doc:name="Choice" doc:id="5f8f2e8e-d523-49ca-b6eb-d3cde0386c5a" >
+			<when expression="#[isEmpty(vars.selectPatientResult) == true]">
+				<raise-error doc:name="Site/patient not found" doc:id="076f102d-4585-4c28-9391-305bab0c17b8" type="RESOURCE:NOT_FOUND" description="Site/patient not found"/>
+			</when>
+			<otherwise >
+				<try doc:name="Try" doc:id="28b3967a-e9f7-4702-916d-af8c4a8692eb" transactionalAction="ALWAYS_BEGIN">
+					<db:delete doc:name="Delete Patient" doc:id="7ee2746b-3698-4378-b8c7-1d14bc31b6ea" config-ref="Database_Config" transactionalAction="ALWAYS_JOIN" target="deletePatientResult">
+			<db:sql>delete from `Patients` where `siteUuid` = :siteId and `uuid` = :patientId</db:sql>
+			<db:input-parameters><![CDATA[#[{"siteId": vars.siteId,"patientId": vars.patientId}]]]></db:input-parameters>
+		</db:delete>
+					<set-variable value='#[%dw 2.0
+output application/json
+---
+vars.tenantDetails.oktaClientId ++ "-" ++ vars.selectPatientResult[0].email]' doc:name="Set patientUserName" doc:id="3a2958e3-e82a-4183-b68f-bec1086a7a62" variableName="patientUserName" />
+					<http:request method="DELETE" doc:name="Admin API Delete Patient" doc:id="1f19533b-3a13-494a-a8fe-b6a00a0746f0" config-ref="HTTP_Request_Configuration_Admin" path="/${api.base}/${api.semantic.version}${admin.basePath}/admin/patients/{patientUserName}" sendBodyMode="NEVER">
+						<http:headers ><![CDATA[#[%dw 2.0
+output application/json
+---
+{
+  "s37-correlation-id": vars.correlationId,
+  "sub":  attributes.headers.sub default '',
+  "dbHost": attributes.headers.dbHost default '',
+  "awsRole": attributes.headers.awsRole default '',
+  "sessionPermissions": attributes.headers.sessionPermissions default '',
+  "tenantRoles": attributes.headers.tenantRoles default '',
+  "tenantId": attributes.headers.tenantId default ''
+}]]]></http:headers>
+						<http:uri-params ><![CDATA[#[output application/java
+---
+{
+	"patientUserName" : vars.patientUserName
+}]]]></http:uri-params>
+					</http:request>
+					<error-handler >
+						<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="45abe367-2b91-4bc2-860b-bcda14f4983a" >
+							<logger level="ERROR" doc:name="Logger" doc:id="af1b68d4-3565-4ffd-bdfc-b50d00e18e3d" message="#[payload]"/>
+						</on-error-propagate>
+					</error-handler>
+				</try>
+				<set-variable value="204" doc:name="Set Response Code" doc:id="cd783288-9b0b-41d6-8795-f2ae3cd114d0" variableName="httpStatusCode" />
+			</otherwise>
+		</choice>
+    </flow>
+    <flow name="put:\platform\sites\(siteId)\patients\(patientId)\emergency-contacts\(contactId):application\json:api-config">
+		<db:update doc:name="Update" doc:id="54c9de90-33a2-4865-b95a-5844ad202f7f" config-ref="Database_Config" target="updateResult">
+			<db:sql >update 
+EmergencyContacts t
+inner join Patients p on p.id = t.patientId
+
+set 
+t.firstName = :firstName,
+t.lastName = :lastName,
+t.email = :email,
+t.phone = :phone,
+t.relationship = :relationship,
+t.updatedBy = :updatedBy
+
+where 
+p.siteUuid = :siteId
+and p.uuid = :patientId
+and t.uuid = :contactId
+</db:sql>
+			<db:input-parameters ><![CDATA[#[{
+	"firstName": payload.firstName,
+	"lastName": payload.lastName,
+	"email": payload.email,
+	"phone": payload.phone,
+	"relationship": payload.relationship,
+	"updatedBy" : vars.tenantDetails.sub,
+	"siteId": attributes.uriParams.siteId,
+	"patientId": attributes.uriParams.patientId,
+	"contactId": attributes.uriParams.contactId
+}]]]></db:input-parameters>
+		</db:update>
+		<flow-ref doc:name="Update Result" doc:id="2f6696a2-e2e8-4ff1-b37b-b7b221068a1b" name="updateResult"/>
+    </flow>
+    <flow name="put:\platform\sites\(siteId)\patients\(patientId)\staff-contacts\(contactId):application\json:api-config">
+		<db:update doc:name="Update" doc:id="f304d0e0-37a3-4426-ac92-52384693c63e" config-ref="Database_Config" target="updateResult">
+			<db:sql >update 
+StaffContacts t
+inner join Patients p on p.id = t.patientId
+
+set
+t.userUuid = :userId, 
+t.firstName = :firstName,
+t.lastName = :lastName,
+t.email = :email,
+t.phone = :phone,
+t.role = :role,
+t.displayName = :displayName,
+t.updatedBy = :updatedBy
+
+where 
+p.siteUuid = :siteId
+and p.uuid = :patientId
+and t.uuid = :contactId
+</db:sql>
+			<db:input-parameters ><![CDATA[#[{
+	"userId": payload.userId,
+	"firstName": payload.firstName,
+	"lastName": payload.lastName,
+	"email": payload.email,
+	"phone": payload.phone,
+	"role": payload.role,
+	"displayName": payload.displayName,	
+	"updatedBy" : vars.tenantDetails.sub,
+	"siteId": attributes.uriParams.siteId,
+	"patientId": attributes.uriParams.patientId,
+	"contactId": attributes.uriParams.contactId
+}]]]></db:input-parameters>
+		</db:update>
+		<flow-ref doc:name="Update Result" doc:id="90415e35-105e-47b5-a16d-8afaedda4aa8" name="updateResult" />
+    </flow>
+    <flow name="delete:\platform\sites\(siteId)\patients\(patientId)\staff-contacts\(contactId):api-config">
+		<ee:transform doc:name="Set Table Name" doc:id="d6caf964-2c15-4492-937c-2622a1c1e0d1" >
+			<ee:message />
+			<ee:variables >
+				<ee:set-variable variableName="tableName" ><![CDATA[%dw 2.0
+output application/java
+---
+'StaffContacts']]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<flow-ref doc:name="Delete Contact" doc:id="717b24ba-960c-440b-a245-fa4423e3aaa9" name="deleteContact" />
+    </flow>
+    <flow name="delete:\platform\sites\(siteId)\patients\(patientId)\emergency-contacts\(contactId):api-config">
+		<ee:transform doc:name="Set Table Name" doc:id="392e629f-48ad-44c9-95e8-fad7b79fc69e" >
+			<ee:message />
+			<ee:variables >
+				<ee:set-variable variableName="tableName" ><![CDATA[%dw 2.0
+output application/java
+---
+'EmergencyContacts']]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<flow-ref doc:name="Delete Contact" doc:id="2cfeb26e-03e4-4539-9493-e1fd04fbf9bb" name="deleteContact" />
+    </flow>
+    <flow name="get:\platform\sites\(siteId)\patients\(patientId)\emergency-contacts:api-config">
+		<ee:transform doc:name="Set Table Name" doc:id="1a0e72cd-4722-4985-bf00-bc4c295da08c" >
+			<ee:message >
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="tableName" ><![CDATA[%dw 2.0
+output application/java
+---
+'EmergencyContacts']]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<flow-ref doc:name="Get Contacts" doc:id="86a0510e-7d1e-432e-baeb-3cd5a1c14669" name="getContacts" />
+		<ee:transform doc:name="Transform Message" doc:id="26bfeb9a-bd59-43cb-9651-f22c725eaffc" xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+var data = payload map ( payload01 , indexOfPayload01 ) -> {
+			id: payload01.uuid,
+			firstName: payload01.firstName,
+			lastName: payload01.lastName,
+			email: payload01.email,
+			phone: payload01.phone,
+			relationship: payload01.relationship,
+			createdAt: payload01.createdAt as DateTime {format: "yyyy-MM-dd'T'HH:mm:ss.SSSX"},
+			createdBy: payload01.createdBy,
+			updatedAt: payload01.updatedAt as DateTime {format: "yyyy-MM-dd'T'HH:mm:ss.SSSX"},
+			updatedBy: payload01.updatedBy
+		}
+---
+{
+	data: data,
+	limit: vars.pagination.limit,
+	start: vars.pagination.start,
+	total: vars.rawCount[0][0]
+}
+]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+    </flow>
+    <flow name="get:\platform\sites\(siteId)\patients\(patientId)\staff-contacts:api-config">
+		<ee:transform doc:name="Set Table Name" doc:id="c29f7af7-00c2-4435-9980-d039ec762329" >
+			<ee:message >
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="tableName" ><![CDATA[%dw 2.0
+output application/java
+---
+'StaffContacts']]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<flow-ref doc:name="Get Contacts" doc:id="0b9bacc8-7257-40e8-b516-6842e68a13ac" name="getContacts"/>
+		<ee:transform doc:name="Transform Message" doc:id="c99c8290-d148-4c7b-90cc-01421aa3d7ae" xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+var data = payload map ( payload01 , indexOfPayload01 ) -> {
+			id: payload01.uuid,
+			userId: payload01.userUuid,
+			firstName: payload01.firstName,
+			lastName: payload01.lastName,
+			email: payload01.email,
+			phone: payload01.phone,
+			role: payload01.role,
+			displayName: payload01.displayName,			
+			createdAt: payload01.createdAt as DateTime {format: "yyyy-MM-dd'T'HH:mm:ss.SSSX"},
+			createdBy: payload01.createdBy,
+			updatedAt: payload01.updatedAt as DateTime {format: "yyyy-MM-dd'T'HH:mm:ss.SSSX"},
+			updatedBy: payload01.updatedBy
+		}		
+---
+{
+	data: data,
+	limit: vars.pagination.limit,
+	start: vars.pagination.start,
+	total: vars.rawCount[0][0]
+}
+]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+    </flow>
+    <flow name="get:\platform\sites\(siteId)\patients\(patientId)\emergency-contacts\(contactId):api-config">
+		<ee:transform doc:name="Set Table Name" doc:id="a8628785-6f60-46bc-b692-26ded67f67b0" >
+			<ee:message />
+			<ee:variables >
+				<ee:set-variable variableName="tableName" ><![CDATA[%dw 2.0
+output application/java
+---
+'EmergencyContacts']]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<flow-ref doc:name="Get Contact" doc:id="145fe42e-1dad-4a19-bb7f-d2e1d85bc071" name="getContact" />
+		<ee:transform doc:name="Transform Message" doc:id="47c5afb0-2ad2-4e18-8452-dbfe2e7da3bb" xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+var payload01 = payload[0]
+---
+{
+	id: payload01.uuid,
+	firstName: payload01.firstName,
+	lastName: payload01.lastName,
+	email: payload01.email,
+	phone: payload01.phone,
+	relationship: payload01.relationship,
+	createdAt: payload01.createdAt as DateTime {format: "yyyy-MM-dd'T'HH:mm:ss.SSSX"},
+	createdBy: payload01.createdBy,
+	updatedAt: payload01.updatedAt as DateTime {format: "yyyy-MM-dd'T'HH:mm:ss.SSSX"},
+	updatedBy: payload01.updatedBy	
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+    </flow>
+    <flow name="get:\platform\sites\(siteId)\patients\(patientId)\staff-contacts\(contactId):api-config">
+		<ee:transform doc:name="Set Table Name" doc:id="fdd21768-7db3-4dd5-9905-713dbbcbf35a" >
+			<ee:message />
+			<ee:variables >
+				<ee:set-variable variableName="tableName" ><![CDATA[%dw 2.0
+output application/java
+---
+'StaffContacts']]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<flow-ref doc:name="Get Contact" doc:id="3779fd03-86b2-4a24-bd90-5c5d2a7e01f7" name="getContact"/>
+		<ee:transform doc:name="Transform Message" doc:id="cc3f7044-68ca-47ea-9fc6-d0998a27b573" xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+var payload01 = payload[0]
+---
+{
+	id: payload01.uuid,
+	userId: payload01.userUuid,
+	firstName: payload01.firstName,
+	lastName: payload01.lastName,
+	email: payload01.email,
+	phone: payload01.phone,
+	role: payload01.role,
+	displayName: payload01.displayName,			
+	createdAt: payload01.createdAt as DateTime {format: "yyyy-MM-dd'T'HH:mm:ss.SSSX"},
+	createdBy: payload01.createdBy,
+	updatedAt: payload01.updatedAt as DateTime {format: "yyyy-MM-dd'T'HH:mm:ss.SSSX"},
+	updatedBy: payload01.updatedBy
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+    </flow>
+    <flow name="post:\platform\sites\(siteId)\patients\(patientId)\emergency-contacts:application\json:api-config">
+		<flow-ref doc:name="Create Contact Init" doc:id="d141b7ff-22a5-48af-8959-c9d692bb0ff7" name="createContactInit" />
+		<db:insert doc:name="Insert Emergency Contact" doc:id="985f3bdc-dede-447a-ac7e-7b865aaf8952" config-ref="Database_Config" target="insertStaffContactResult" transactionalAction="NOT_SUPPORTED">
+			<db:sql >INSERT INTO `EmergencyContacts` ( 
+`uuid`,`patientId`,`firstName`,`lastName`,
+`email`,`phone`,`relationship`,
+`createdBy`,`updatedBy`
+)
+
+VALUES (
+:uuid, :patientId, :firstName, :lastName, 
+:email, :phone, :relationship,
+:createdBy, :updatedBy
+)
+
+</db:sql>
+			<db:input-parameters ><![CDATA[#[{
+	"uuid": vars.uuid,
+	"patientId": vars.selectPatientResult[0].id,
+	"firstName": payload.firstName,
+	"lastName": payload.lastName,
+	"email": payload.email,
+	"phone": payload.phone,
+	"relationship": payload.relationship,
+	"createdBy" : vars.tenantDetails.sub,	
+	"updatedBy" : vars.tenantDetails.sub
+}]]]></db:input-parameters>
+		</db:insert>
+		<ee:transform doc:name="Transform Message" doc:id="c8edd754-62a5-4404-b525-7777d7e27b11" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	correlationId: vars.correlationId,
+	timestamp: now() as Number,
+	id: vars.uuid
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<error-handler >
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="ab4d80e1-7ecb-4760-8c34-3a99e021976e" when='(error.errorType.identifier == "QUERY_EXECUTION") and (error.description startsWith("Duplicate entry"))' >
+				<raise-error doc:name="Duplicate Entry" doc:id="869493e4-b11a-40a3-89dc-28cfbdae7873" type="RESOURCE:DUPE" description="Duplicate entry" />
+			</on-error-propagate>
+		</error-handler>
+    </flow>
+    <flow name="post:\platform\sites\(siteId)\patients\(patientId)\staff-contacts:application\json:api-config">
+        <flow-ref doc:name="Create Contact Init" doc:id="17ac8153-653e-484e-bd17-df363bbf56f5" name="createContactInit"/>
+		<db:insert doc:name="Insert Staff Contact" doc:id="2c0fb7eb-daf2-4745-bf24-610aad934d81" config-ref="Database_Config" target="insertStaffContactResult" transactionalAction="NOT_SUPPORTED">
+			<db:sql>INSERT INTO `StaffContacts` ( 
+`uuid`,`patientId`, `userUuid`,`firstName`,`lastName`,
+`email`,`phone`,`role`,`displayName`,
+`createdBy`,`updatedBy`
+)
+
+VALUES (
+:uuid, :patientId, :userUuid, :firstName, :lastName, 
+:email, :phone, :role, :displayName,
+:createdBy, :updatedBy
+)
+
+</db:sql>
+			<db:input-parameters><![CDATA[#[{
+	"uuid": vars.uuid,
+	"patientId": vars.selectPatientResult[0].id,
+	"userUuid": payload.userId,
+	"firstName": payload.firstName,
+	"lastName": payload.lastName,
+	"email": payload.email,
+	"phone": payload.phone,
+	"role": payload.role,
+	"displayName": payload.displayName,
+	"createdBy" : vars.tenantDetails.sub,
+	"updatedBy" : vars.tenantDetails.sub
+}]]]></db:input-parameters>
+		</db:insert>
+		<ee:transform doc:name="Transform Message" doc:id="d32a9ac7-784c-434e-b0bf-e5ac4e884868" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	correlationId: vars.correlationId,
+	timestamp: now() as Number,
+	id: vars.uuid
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<error-handler >
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="6a2cc1b4-bd70-4f8b-9021-aa53662503f0" when='(error.errorType.identifier == "QUERY_EXECUTION") and (error.description startsWith("Duplicate entry"))' >
+				<raise-error doc:name="Duplicate Entry" doc:id="0da00b0b-e006-401a-b439-a2791325d034" type="RESOURCE:DUPE" description="Duplicate entry" />
+			</on-error-propagate>
+		</error-handler>
+    </flow>
+    
+
+    <sub-flow name="mySQLBaseParams" doc:id="29ca87ee-dbf4-46d7-8aab-7788b3351568" >
+		<ee:transform doc:name="Set pagination &amp; sort" doc:id="384291b5-0d6e-4e8a-b139-a5744f3d9f86" >
+			<ee:message >
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="pagination" ><![CDATA[%dw 2.0
+output application/java
+var limit = attributes.queryParams.limit default 100
+var start = attributes.queryParams.start default 1
+---
+{
+	"limit": limit as Number,
+	"start": start as Number,
+	"offset": (start - 1) * limit,
+	"rowCount": limit as Number
+}]]></ee:set-variable>
+				<ee:set-variable variableName="sort" ><![CDATA[%dw 2.0
+output application/java
+---
+{
+	"criteria": (attributes.queryParams.sort splitBy(/[:]/))[0] default 'id' as String,
+	"direction": (attributes.queryParams.sort splitBy(/[:]/))[1] default 'asc' as String
+}]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<ee:transform doc:name="Set base input params" doc:id="54ebfb6e-05c7-4ead-b271-595f2fb9f857" >
+			<ee:message />
+			<ee:variables >
+				<ee:set-variable variableName="filterInputParams" ><![CDATA[%dw 2.0
+output application/json
+
+/** 
+ * Returns a key/value pair filter object from a queryParams object. 
+ * Returns an empty object if there are no valid filters found
+ * 
+ * Example:
+ * 
+ * attributes.queryParams = {
+ *       "filter[number]" : 123,
+ *       "filter[isActive]" : true,
+ *       "filter[invalidKey]" : "ignoreme",
+ *       "key1" : "key1"
+ * }
+ * 
+ * output = {
+ *  "number": 123,
+ *  "isActive": true
+ * }
+ * 
+ * */
+
+// Get valid filters only
+var filteredQueryParams = attributes.queryParams filterObject( (value, key) -> 
+    key contains /filter\[(scope|isInactive|contact|startDate|endDate|partial)\]/
+)
+
+---
+filteredQueryParams mapObject (value, key) -> { 
+    (scope: value as String) if (key as String == "filter[scope]"),
+    (isInactive: value as Boolean) if (key as String == "filter[isInactive]"),
+    (contact: value as String) if (key as String == "filter[contact]"),
+    (startDate: value as Date) if (key as String == "filter[startDate]"),
+    (endDate: value as Date) if (key as String == "filter[endDate]"),
+    (partial: vars.partialSearchString as String) if (key as String == "filter[partial]")
+    
+}]]></ee:set-variable>
+				<ee:set-variable variableName="paginationInputParams" ><![CDATA[%dw 2.0
+output application/java
+---
+{
+	"offset": vars.pagination.offset,
+	"rowCount": vars.pagination.rowCount
+}]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+	</sub-flow>
+	<sub-flow name="createContactInit" doc:id="32f52727-ef0f-43fb-83d5-65c47d5448d3" >
+		<ee:transform doc:name="Sets UUID &amp; Response Code" doc:id="d305232c-cbf9-4196-8c46-48556dcd584a" >
+			<ee:message >
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="uuid" ><![CDATA[%dw 2.0
+output application/java
+---
+uuid()]]></ee:set-variable>
+				<ee:set-variable variableName="httpStatusCode" ><![CDATA[%dw 2.0
+output application/java
+---
+201]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<db:select doc:name="Select Patient" doc:id="6a8c4e73-c289-4868-adfd-d8aee95fbc94" config-ref="Database_Config" target="selectPatientResult" >
+			<db:sql >#[&quot;select * from Patients where siteUuid = :siteId and uuid = :patientId limit 1&quot;]</db:sql>
+			<db:input-parameters ><![CDATA[#[{
+	"siteId": attributes.uriParams.siteId,
+	"patientId": attributes.uriParams.patientId
+}]]]></db:input-parameters>
+		</db:select>
+		<choice doc:name="Choice" doc:id="188bec57-40fb-4c84-abaf-2fc8345e5a70" >
+			<when expression="#[isEmpty(vars.selectPatientResult)]" >
+				<raise-error doc:name="Site/patient not found" doc:id="39d9ac23-a3ed-4b14-acd2-797fc8581c21" type="RESOURCE:NOT_FOUND" description="Site/patient not found" />
+			</when>
+		</choice>
+	</sub-flow>
+	<sub-flow name="getContacts" doc:id="dcecf967-80fb-46c5-9049-a40af1f2d8f6" >
+		<flow-ref doc:name="mySQLBaseParams" doc:id="62dd9cda-c595-47ff-bf2c-2403565757b7" name="mySQLBaseParams" />
+		<ee:transform doc:name="Set sql sort" doc:id="3a6e53da-9277-45ee-8f04-73c3f33d09d5" >
+			<ee:message >
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="sortInputParams" ><![CDATA[%dw 2.0
+output application/json
+
+var sortCriteria = if (['email','firstName', 'lastName'] contains(vars.sort.criteria))
+	vars.sort.criteria
+else
+	'id'
+
+var sortDirection = if (['asc','desc'] contains(vars.sort.direction))
+	vars.sort.direction
+else
+	'asc'
+
+---
+{
+	"criteria": sortCriteria,
+	"direction": sortDirection
+}]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<ee:transform doc:name="Set sql where clause" doc:id="0902515f-6bd1-4163-824b-7a8a0ca35393" >
+			<ee:message />
+			<ee:variables >
+				<ee:set-variable variableName="filterWhereClause" ><![CDATA[%dw 2.0
+output application/json
+
+/**
+ * Returns a where clause string given a filter object
+ * Returns an empty string if the filter object is empty
+ * 
+ * Example:
+ * 
+ * filterInputParams = {
+ *  "number": 123,
+ *  "isActive": true
+ * }
+ * 
+ * output = "number=:number and isActive=:isActive"
+ * 
+ */
+
+---
+
+vars.filterInputParams mapObject {
+'$$':$$ ++ '=' ++ ':$$'
+} pluck $ joinBy ' and '
+]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<db:select doc:name="Count with filter" doc:id="9fc35671-59a9-4c1b-9dfe-b87d7ff002de" config-ref="Database_Config" target="rawCount" >
+			<db:sql >#[&quot;select count(t.id) as count
+from $(vars.tableName) t
+inner join Patients p on p.id = t.patientId
+where p.siteUuid = :siteId
+and p.uuid = :patientId
+$(
+	if(not isBlank(vars.filterWhereClause))
+		'and  ' ++ vars.filterWhereClause
+	else
+		''
+)
+&quot;]</db:sql>
+			<db:input-parameters ><![CDATA[#[vars.filterInputParams ++
+{
+	"siteId": attributes.uriParams.siteId,
+	"patientId": attributes.uriParams.patientId
+}]]]></db:input-parameters>
+		</db:select>
+		<choice doc:name="If contact exists" doc:id="10fcb54e-6292-4c4a-a880-6fb50a609ad5" >
+			<when expression="#[vars.rawCount[0][0] == 0]" >
+				<ee:transform doc:name="Transform Message" doc:id="12c9de3f-95e1-4ce3-b4bb-050f3096ed16" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+// empty array as payload
+---
+[]]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</when>
+			<otherwise >
+				<db:select doc:name="Select with filter" doc:id="0b153059-5fa7-4f37-a8cf-1d9886bd5cb1" config-ref="Database_Config" >
+					<db:sql >#[&quot;select t.*
+from $(vars.tableName) t
+inner join Patients p on p.id = t.patientId
+where p.siteUuid = :siteId
+and p.uuid = :patientId
+$(
+	if(not isBlank(vars.filterWhereClause))
+		'and  ' ++ vars.filterWhereClause
+	else
+		''
+)
+order by t.$(vars.sortInputParams.criteria) $(vars.sortInputParams.direction)
+limit :rowCount
+offset :offset&quot;]</db:sql>
+					<db:input-parameters ><![CDATA[#[vars.filterInputParams ++
+vars.paginationInputParams ++
+{
+	"siteId": attributes.uriParams.siteId,
+	"patientId": attributes.uriParams.patientId	
+}]]]></db:input-parameters>
+				</db:select>
+			</otherwise>
+		</choice>
+	</sub-flow>
+	<sub-flow name="getContact" doc:id="5ed3d421-05df-44cd-b449-d3a42a843a61" >
+		<db:select doc:name="Select Contact" doc:id="9aec3cfd-2c31-4e7e-a564-d334270e08f5" config-ref="Database_Config">
+			<db:sql >#[&quot;select t.*
+from $(vars.tableName) t
+inner join Patients p on p.id = t.patientId
+where p.siteUuid = :siteId
+and p.uuid = :patientId
+and t.uuid = :contactId
+limit 1&quot;]</db:sql>
+			<db:input-parameters ><![CDATA[#[{
+	"siteId": attributes.uriParams.siteId,
+	"patientId": attributes.uriParams.patientId,
+	"contactId": attributes.uriParams.contactId	
+}]]]></db:input-parameters>
+		</db:select>
+		<choice doc:name="Choice" doc:id="26fbfe0b-469e-4a6a-8ce5-e38a5e834d53" >
+			<when expression="#[isEmpty(payload)]" >
+				<raise-error doc:name="Site/patient/contact not found" doc:id="868d1e22-ac2b-4d41-9ee8-b0224ed7d3d1" type="RESOURCE:NOT_FOUND" description="Site/patient/contact not found" />
+			</when>
+		</choice>
+	</sub-flow>
+	<sub-flow name="getPatient" doc:id="13642587-27fb-42ca-be29-ec776bf63317" >
+		<db:select doc:name="Select Patient" doc:id="a91db927-64d0-410c-abe9-840940a37927" config-ref="Database_Config" >
+			<db:sql ><![CDATA[#["select p.*
+from Patients p
+where p.siteUuid = :siteId
+and p.uuid = :patientId
+limit 1"]]]></db:sql>
+			<db:input-parameters ><![CDATA[#[{
+	"siteId": attributes.uriParams.siteId,
+	"patientId": attributes.uriParams.patientId
+}]]]></db:input-parameters>
+		</db:select>
+		<choice doc:name="Choice" doc:id="8a31d69b-3659-43da-9631-0ae36a735e36" >
+			<when expression="#[isEmpty(payload)]" >
+				<raise-error doc:name="Site/patient not found" doc:id="ba1d8adf-d5e6-4adf-a312-61b2a9ef18ae" type="RESOURCE:NOT_FOUND" description="Site/patient not found" />
+			</when>
+		</choice>
+	</sub-flow>
+	<sub-flow name="deleteContact" doc:id="b58726c0-7869-41ca-a099-8afd6c9f23af" >
+		<ee:transform doc:name="Set Response Code" doc:id="189c7481-9277-4939-927e-5cb9f8421f86">
+			<ee:message />
+			<ee:variables>
+				<ee:set-variable variableName="httpStatusCode"><![CDATA[%dw 2.0
+output application/java
+---
+204]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<db:delete doc:name="Delete Contact" doc:id="cb1f21ea-afbf-4f87-aded-cfe94e0cad76" config-ref="Database_Config">
+			<db:sql >#[&quot;delete t.*
+from $(vars.tableName) t
+inner join Patients p on p.id = t.patientId
+where p.siteUuid = :siteId
+and p.uuid = :patientId
+and t.uuid = :contactId&quot;]</db:sql>
+			<db:input-parameters ><![CDATA[#[{
+	"siteId": attributes.uriParams.siteId,
+	"patientId": attributes.uriParams.patientId,
+	"contactId": attributes.uriParams.contactId	
+}]]]></db:input-parameters>
+		</db:delete>
+		<choice doc:name="Choice" doc:id="a045baaf-fb02-4466-b08e-d66ff35e8b81" >
+			<when expression="#[payload == 0]" >
+				<raise-error doc:name="Site/patient/contact not found" doc:id="b9a3888b-f9d0-4ea3-adeb-9eb7a2157fc2" type="RESOURCE:NOT_FOUND" description="Site/patient/contact not found" />
+			</when>
+		</choice>
+		<set-payload value="#[payload]" doc:name="Set Empty Payload" doc:id="d9570da9-db83-4be1-86cd-90ba69fb9ebf" />
+	</sub-flow>
+	<sub-flow name="updateResult" doc:id="91d0241a-ecea-488b-ab86-78fa3c8e0823" >
+		<choice doc:name="Choice" doc:id="73ca7cc4-df55-4d1c-845f-7799d0a0cb54" >
+			<when expression="#[vars.updateResult.affectedRows == 0]" >
+				<raise-error doc:name="Site/patient/contact not found" doc:id="87b85643-4fe8-4d4d-8e6c-c71bb9c0e1ec" type="RESOURCE:NOT_FOUND" description="Site/patient/contact not found" />
+			</when>
+		</choice>
+		<ee:transform doc:name="Transform Message" doc:id="fe0bda91-9286-4503-a374-ae26ad69b563" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	correlationId: vars.correlationId,
+	timestamp: now() as Number,
+	id: attributes.uriParams.contactId
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</sub-flow>
+</mule>

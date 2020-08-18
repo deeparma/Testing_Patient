@@ -1,0 +1,26 @@
+api:
+  id: "00000000"
+  version: "1.0.0:00000000"
+request:
+  api:
+    port: "9090"
+    host: "localhost"
+    path: "/"
+my:
+  client_id: ""
+  client_secret: ""
+json:
+  logger:
+    disabledFields: ""
+logger:
+  kafka:
+    serverUrl: "localhost:9092"
+    topic: "test"
+    messageKey: "mule-kafka"
+    ssl:
+      keyStore:
+        password: ""
+        location: ""
+      trustStore:
+        password: ""
+        location: ""

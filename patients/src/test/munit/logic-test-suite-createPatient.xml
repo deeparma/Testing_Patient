@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:munit="http://www.mulesoft.org/schema/mule/munit" xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xsi:schemaLocation="
+		http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+		http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+		http://www.mulesoft.org/schema/mule/munit-tools  http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd">
+	<munit:config name="logic-test-suite-createPatient.xml" />
+	<munit:test name="logic-test-suite-createPatient-patientAlreadyExists" doc:id="c12f67be-e720-4f0c-afef-2981a32aefd2" description="Test">
+		<munit:behavior >
+			<munit-tools:mock-when doc:name="Mock Select Patient Email" doc:id="aa64f10d-07d8-4e12-bc2e-0b572997feb2" processor="db:select">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="Select Patient" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="09e44035-1e33-413e-a3ab-629de901ab92" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="Database_Config" attributeName="config-ref" />
+					<munit-tools:with-attribute whereValue="selectPatientEmail" attributeName="target" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return >
+					<munit-tools:payload value="#[{'email':'amit.taneja@science37.com'}]" />
+					<munit-tools:variables >
+						<munit-tools:variable key="selectPatientEmail" value="#[{'email':'amit.taneja@science37.com'}]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when doc:name="Mock Patient Already Exists" doc:id="0cc68dab-56c8-4476-b89d-48291360eb28" processor="raise-error">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="Patient already exists" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="09295a2d-4ce2-4ac3-9061-19a4e1905f0e" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="RESOURCE:DUPE" attributeName="type" />
+					<munit-tools:with-attribute whereValue="Patient already exists" attributeName="description" />
+				</munit-tools:with-attributes>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution >
+			<munit:set-event doc:name="Set Event" doc:id="fd367ac0-b83a-4f09-9109-962e5e4a29ea" >
+				<munit:payload value="#[MunitTools::getResourceAsString('POST/createPatient/createPatientPayload.json')]" />
+			</munit:set-event>
+			<flow-ref doc:name="Flow-ref to post:\platform\sites\(siteId)\patients:application\json:api-config" doc:id="8bd77ab7-6561-43f7-b363-04f902b0bc3c" name="post:\platform\sites\(siteId)\patients:application\json:api-config"/>
+		</munit:execution>
+		<munit:validation >
+			<munit-tools:verify-call doc:name="Verify call" doc:id="15191453-e47b-406e-9e7b-a17f61a802b6" processor="raise-error" times="1">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="Patient already exists" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="09295a2d-4ce2-4ac3-9061-19a4e1905f0e" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="RESOURCE:DUPE" attributeName="type" />
+					<munit-tools:with-attribute whereValue="Patient already exists" attributeName="description" />
+				</munit-tools:with-attributes>
+			</munit-tools:verify-call>
+		</munit:validation>
+	</munit:test>
+	
+	<munit:test name="logic-test-suite-createPatient" doc:id="30805f2c-4cfa-4e74-8d01-0ca476386ad8" description="Test">
+		<munit:behavior >
+			<munit-tools:mock-when doc:name="Mock Select Patient Email" doc:id="069b6d25-9768-4af9-97d4-473a11fb071a" processor="db:select">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="Select Patient" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="09e44035-1e33-413e-a3ab-629de901ab92" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="Database_Config" attributeName="config-ref" />
+					<munit-tools:with-attribute whereValue="selectPatientEmail" attributeName="target" />
+				</munit-tools:with-attributes>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when doc:name="Mock Insert Patient" doc:id="6d3078d4-e42d-4af6-9f40-faa79a3cab1e" processor="db:insert">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="Insert Patient" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="3a203322-7ad7-445d-8922-2e4f0c2522cd" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="Database_Config" attributeName="config-ref" />
+					<munit-tools:with-attribute whereValue="insertPatientResult" attributeName="target" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return >
+					<munit-tools:payload value="#[MunitTools::getResourceAsString('POST/createPatient/insertPatientResult.json')]" />
+					<munit-tools:variables >
+						<munit-tools:variable key="insertPatientResult" value="#[MunitTools::getResourceAsString('POST/createPatient/insertPatientResult.json')]" mediaType="application/json" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when doc:name="Mock Admin API Create Patient" doc:id="7178e313-f3bb-4af5-a1c8-de7eb1b8bb23" processor="http:request">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="POST" attributeName="method" />
+					<munit-tools:with-attribute whereValue="Admin API Create Patient Request" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="7d02d396-55f1-451a-b837-dc92d3fa63de" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="HTTP_Request_Configuration_Admin" attributeName="config-ref" />
+				</munit-tools:with-attributes>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution >
+			<munit:set-event doc:name="Set Event" doc:id="7086e9fa-3f4d-4f6f-96b5-7ef510198ab1" >
+				<munit:payload value="#[MunitTools::getResourceAsString('POST/createPatient/createPatientPayload.json')]" />
+			</munit:set-event>
+			<flow-ref doc:name="Flow-ref to post:\platform\sites\(siteId)\patients:application\json:api-config" doc:id="b43fa5a6-8246-42fb-ab2c-77e64c9b7360" name="post:\platform\sites\(siteId)\patients:application\json:api-config"/>
+		</munit:execution>
+		<munit:validation >
+			<munit-tools:verify-call doc:name="Verify call" doc:id="14a880c0-25e7-463e-aed5-1b83f18d98a4" processor="ee:transform" times="1">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="Transform Message" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="9054844d-10e0-491d-a353-d833b230b3af" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+			</munit-tools:verify-call>
+			<munit-tools:verify-call doc:name="Verify call" doc:id="855357f5-ef90-48a6-9914-806f019f41e9" processor="set-variable" times="1">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="Set Response Code" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="36915c53-daad-4021-83e2-a61b651a4dfe" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="httpStatusCode" attributeName="variableName" />
+				</munit-tools:with-attributes>
+			</munit-tools:verify-call>
+		</munit:validation>
+	</munit:test>
+	
+	<munit:test name="logic-test-suite-createPatient-errorScenario" doc:id="e98ca442-a14d-4091-818e-bd7de2f6a534" description="Test">
+		<munit:behavior >
+			<munit-tools:mock-when doc:name="Mock Select Patient Email" doc:id="fba7ce47-9d4a-4a36-bc4e-6cc6fee90eac" processor="db:select">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="Select Patient" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="09e44035-1e33-413e-a3ab-629de901ab92" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="Database_Config" attributeName="config-ref" />
+					<munit-tools:with-attribute whereValue="selectPatientEmail" attributeName="target" />
+				</munit-tools:with-attributes>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when doc:name="Mock Insert Patient" doc:id="6fa10bff-7626-4bdd-a733-39c9b5f1174d" processor="db:insert">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="Insert Patient" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="3a203322-7ad7-445d-8922-2e4f0c2522cd" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="Database_Config" attributeName="config-ref" />
+					<munit-tools:with-attribute whereValue="insertPatientResult" attributeName="target" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return >
+					<munit-tools:error typeId="DB:CONNECTIVITY" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution >
+			<munit:set-event doc:name="Set Event" doc:id="5131759a-afae-44b1-bb3b-42774c5a2116" >
+				<munit:payload value="#[MunitTools::getResourceAsString('POST/createPatient/createPatientPayload.json')]" />
+			</munit:set-event>
+			<try doc:name="Try" doc:id="56644f72-4e58-433e-88fd-b7134fd89061" >
+				<flow-ref doc:name="Flow-ref to post:\platform\sites\(siteId)\patients:application\json:api-config" doc:id="d18cb957-cf81-4620-8204-9cfbd2440b70" name="post:\platform\sites\(siteId)\patients:application\json:api-config" />
+				<error-handler >
+					<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="60279916-f30e-4f92-a21d-4ecc633b0cc8" type="DB:CONNECTIVITY"/>
+				</error-handler>
+			</try>
+		</munit:execution>
+		<munit:validation >
+			<munit-tools:verify-call doc:name="Verify call" doc:id="6063c0d9-f7f0-4127-9593-639276794f1f" processor="logger" times="1">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="ERROR" attributeName="level" />
+					<munit-tools:with-attribute whereValue="Logger" attributeName="doc:name" />
+					<munit-tools:with-attribute whereValue="c2e0c43e-1066-4f37-9093-4690f2ea2da5" attributeName="doc:id" />
+					<munit-tools:with-attribute whereValue="#[payload]" attributeName="message" />
+				</munit-tools:with-attributes>
+			</munit-tools:verify-call>
+		</munit:validation>
+	</munit:test>
+	
+
+</mule>

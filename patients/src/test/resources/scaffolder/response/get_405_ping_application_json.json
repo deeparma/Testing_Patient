@@ -1,0 +1,1 @@
+{"success":false,"correlationId":"9e81b970-4f3a-11e9-9736-6a1e061063f6","timestamp":"2019-03-25T13:14:41.512-07:00","results":[{"success":false,"statusSet":[{"code":405,"descriptor":"/ping : post","message":"The method has not been implemented"}]}]}

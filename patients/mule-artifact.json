@@ -1,0 +1,10 @@
+{
+  "minMuleVersion": "4.1.2",
+  "secureProperties": [
+    "anypoint.platform.client_secret",
+    "my.client_secret",
+    "logger.kafka.ssl.keyStore.password",
+    "logger.kafka.ssl.trustStore.password",
+    "encryption.key"
+  ]
+}

@@ -1,0 +1,432 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:dynamodb="http://www.mulesoft.org/schema/mule/dynamodb"
+	xmlns:s3="http://www.mulesoft.org/schema/mule/s3"
+	xmlns:validation="http://www.mulesoft.org/schema/mule/validation" xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking"
+	xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns:json-logger="http://www.mulesoft.org/schema/mule/json-logger"
+	xmlns:scripting="http://www.mulesoft.org/schema/mule/scripting" xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:min-log="http://www.mulesoft.org/schema/mule/min-log" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+	http://www.mulesoft.org/schema/mule/min-log http://www.mulesoft.org/schema/mule/min-log/current/mule-min-log.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/scripting http://www.mulesoft.org/schema/mule/scripting/current/mule-scripting.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/json-logger http://www.mulesoft.org/schema/mule/json-logger/current/mule-json-logger.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd
+http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd
+http://www.mulesoft.org/schema/mule/s3 http://www.mulesoft.org/schema/mule/s3/current/mule-s3.xsd
+http://www.mulesoft.org/schema/mule/dynamodb http://www.mulesoft.org/schema/mule/dynamodb/current/mule-dynamodb.xsd">
+	
+    <flow name="put:\platform\sites\(siteId)\patients\(patientId)\attachments\(attachmentId):application\json:api-config">
+        <flow-ref doc:name="Get Patient" doc:id="af5975f7-f4ed-4e19-8941-26d2fe0fa0e8" name="getPatient" target="patient"/>
+		<set-variable value="#[payload]" doc:name="Set Request Payload" doc:id="6b5a9544-b996-4ddb-afc3-8e7da5fc7cde" variableName="requestPayload" />
+		<flow-ref doc:name="Get Attachment By Id" doc:id="f4454e91-312b-48a4-8911-d97c1b6ff7b7" name="getAttachmentById" target="attachment"/>
+		<choice doc:name="" doc:id="2ddeed84-8411-40e7-9c84-d2fa5487f418">
+			<when expression="#[vars.attachment.count == 0]">
+				<raise-error doc:name="Not Found" doc:id="5f0443c9-60f3-44c1-ae33-049abfebddfa" type="RESOURCE:NOT_FOUND" description="Attachment does not exist" />
+			</when>
+			<when expression="#[%dw 2.0
+output application/json
+var attachment = vars.attachment[0]
+---
+if (
+	attachment.attachmentType != vars.requestPayload.attachmentType or 
+	attachment.file != vars.requestPayload.file
+) 
+	true 
+else
+	false]">
+				<raise-error doc:name="Bad Request" doc:id="9cbd220d-554b-4c3e-a500-89abd474c3d2" description="Incorrect attachment type/file" type="APP:BAD_REQUEST"/>
+			</when>			
+		</choice>
+		<set-variable value="PUT" doc:name="Set PreSigned - PUT" doc:id="4e4ba02a-18f0-4dc6-a906-8c3244966f3b" variableName="preSignedUrlMethod" />
+		<flow-ref doc:name="Get PreSigned URL For Upload" doc:id="8eea1422-213f-49c1-ae14-53dbcac458c7" name="getPreSignedUrl" target="preSignedUrl"/>
+		<flow-ref doc:name="Get DynamoDB Details" doc:id="5cabcc0c-01e1-4295-a730-35a502895b8d" name="dynamoDbDetails" target="dynamoDbDetails" />
+		<ee:transform doc:name="Create Attachment Sort Key" doc:id="de70d15b-4bbe-43a9-8b2a-a81ccd7e89e1">
+			<ee:variables>
+				<ee:set-variable variableName="attachmentSortKey"><![CDATA[%dw 2.0
+output application/json
+
+// Mule's substringAfterLast (https://docs.mulesoft.com/mule-runtime/4.3/dw-strings-functions-substringafterlast)
+// can only run correctly on runtime 4.3.0. However, app only works on runtime 4.2.2
+// This is the workaround:
+// https://help.mulesoft.com/s/question/0D52T000053FxKh/substringafter-not-working-as-expected
+fun numericVersion(text: String, separator: String): Number = do {
+  var index = (text find separator)[0]
+  ---
+  index match {
+      case is Null -> 0
+      case index is Number ->
+          text[index + sizeOf(separator) to -1] as Number default 0
+  }
+}
+
+var latestAttachment = vars.attachment[-1]
+var attachmentInfo = latestAttachment.attachmentInfo
+var version = numericVersion(attachmentInfo, "#v")
+---
+latestAttachment.attachmentType ++ "#" ++ latestAttachment.file ++ "#v" ++ (version + 1)]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<ee:transform doc:name="Set Original Created Info" doc:id="23f558d8-47ca-4bc1-b036-83f8128ee6f2" >
+			<ee:message >
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="originalCreatedInfo" ><![CDATA[%dw 2.0
+output application/json
+
+
+var latestAttachment = vars.attachment[-1]
+
+---
+{
+	createdBy: latestAttachment.createdBy,
+	createdAt: latestAttachment.createdAt
+}]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<flow-ref doc:name="Save Attachment To DB" doc:id="d932f491-4340-42d0-b450-04a786e39025" name="saveAttachmentToDynamoDb" />
+		<ee:transform doc:name="Transform Message" doc:id="d96364b2-1e98-414e-af52-e9477ea06e71" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	correlationId: vars.correlationId,
+	timestamp: now() as Number,
+	id: vars.dynamoDbDetails.attachmentId,
+	data: {
+		preSignedUrl: vars.preSignedUrl
+	}
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+    </flow>
+    <flow name="delete:\platform\sites\(siteId)\patients\(patientId)\attachments\(attachmentId):api-config">
+	<flow-ref doc:name="Get Patient" doc:id="aae8d007-b0e5-412f-ac33-93fa517b7949" name="getPatient" target="patient" />
+		<flow-ref doc:name="Get Attachment By Id" doc:id="60e9ef7d-95d0-4ec2-9ee0-1bb42bf046da" name="getAttachmentById" target="attachment"/>
+	<flow-ref doc:name="Get Dynamo DB Details" doc:id="9daa61e4-9768-4eb1-89ae-97d41ac73918" name="dynamoDbDetails" target="dynamoDbDetails"/>
+		<foreach doc:name="For Each Attachment Sort Key" doc:id="43b91ec5-dcc2-45db-a957-b343daaf11fd" collection="#[vars.attachment]">
+	    <set-variable value="#[payload.attachmentInfo]" doc:name="Set attachmentSortKey" doc:id="6528bdb0-41dd-48dc-9697-24857b14685a" variableName="attachmentSortKey" />
+	    <set-variable value="#[%dw 2.0
+	output application/java
+	---
+	p('mule.env') ++ '-' ++ vars.tenantDetails.tenantId ++ &quot;-tenant-private&quot;]" doc:name="Set S3 Bucket Name" doc:id="985ba946-cbfc-410a-a93b-d135fe402397" variableName="s3BucketName" />
+				<set-variable value="#[payload.s3.key]" doc:name="Set S3 Key" doc:id="3568f952-f62b-417e-9890-b22e7047525f" variableName="s3Key"/>
+				<set-variable value="#[payload.s3.versionId]" doc:name="Set S3 VersionId" doc:id="daa5de6f-731e-4744-b160-3d32139c3666" variableName="s3VersionId"/>
+			<dynamodb:delete-item doc:name="Delete Attachment" doc:id="a06a404a-b4e6-4be3-b74e-01b7acc05480" config-ref="Amazon_DynamoDB_Configuration" tableName="#[vars.dynamoDbDetails.tableName]">
+				<reconnect />
+				<dynamodb:primarykey ><![CDATA[#[{
+	"patientId": {
+		"S": vars.dynamoDbDetails.patientId as String
+	},
+	"attachmentInfo": {
+		"S": vars.attachmentSortKey as String
+	}
+}]]]></dynamodb:primarykey>
+			</dynamodb:delete-item>
+			<choice doc:name="Choice" doc:id="92e6393b-a5b0-4fdd-9c6d-828549e27187" >
+					<when expression='#[not (vars.attachmentSortKey contains("v0"))]'>
+						<s3:delete-object doc:name="Delete object" doc:id="09ac6f0e-d0c6-4edb-9dc0-b06ea9c4a130" config-ref="Amazon_S3_Configuration" key="#[vars.s3Key]" versionId="#[vars.s3VersionId]" bucketName="#[vars.s3BucketName]" >
+						<reconnect />
+					</s3:delete-object>
+					</when>
+				</choice>
+	  </foreach>
+			<set-variable value="204" doc:name="Set Response Code" doc:id="d1b6a6d4-da91-41ac-85f2-e4c823ab9313" variableName="httpStatusCode" />
+	</flow>
+    <flow name="get:\platform\sites\(siteId)\patients\(patientId)\attachments:api-config">
+		<flow-ref doc:name="Get Patient" doc:id="cbd41405-d5ad-4912-8963-8102f2e5324f" name="getPatient" target="patient" />
+		<flow-ref doc:name="Get Dynamo DB Details" doc:id="64a5cbd1-c1f4-4b56-8c11-6803bb61f229" name="dynamoDbDetails" target="dynamoDbDetails"/>
+        <dynamodb:query doc:name="Get All Attachments For Patient" doc:id="33694eb5-f8d2-4641-9bab-98391e2e7d8b" config-ref="Amazon_DynamoDB_Configuration" tableName="#[vars.dynamoDbDetails.tableName]" select="ALL_ATTRIBUTES" filterExpression='#["isUploaded = :isUploaded"]' keyConditionExpression='#[%dw 2.0
+output application/json
+
+var defaultExpression = "patientId = :patientId"
+var attachmentType = attributes.queryParams."filter[attachmentType]" default null
+var finalExpression = if (attachmentType != null)
+	defaultExpression ++ " AND begins_with(attachmentInfo, :attachmentType)"
+else
+	defaultExpression
+---
+finalExpression]' attributeValues='#[%dw 2.0
+output application/json
+
+var defaultParams = {
+	":isUploaded": {bool:true},
+	":patientId": {S: vars.dynamoDbDetails.patientId}	
+}
+var attachmentType = attributes.queryParams."filter[attachmentType]" default null
+var finalParams = if (attachmentType != null)
+	defaultParams ++ {
+		":attachmentType": {S: attachmentType ++ "#"}
+	}
+else
+	defaultParams
+---
+finalParams]' target="attachments">
+		</dynamodb:query>
+		<ee:transform xsi:schemaLocation="http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+import isNumeric from dw::core::Strings
+
+var start = attributes.queryParams.start as Number default 1
+var limit = attributes.queryParams.limit as Number default p('pagination.defaultLimit') as Number
+
+
+// Iterate through the payload and filter only the latest version
+// (i.e. attachmentInfo that ends with "#v0")
+// We're filtering here because DynamoDB query does not support
+// CONTAINS on KeyConditionExpression
+var response = vars.attachments.items map({
+	id: $.attachmentId.s,
+	attachmentType: $.metadata.m.attachmentType.s,
+	contentType: $.metadata.m.contentType.s,
+	title: $.metadata.m.title.s,
+	file: $.metadata.m.file.s,
+	version: $.metadata.m.version.s,
+	hash: $.metadata.m.s3.m.eTag.s,
+	size: if (isNumeric($.metadata.m.s3.m.size.n)) $.metadata.m.s3.m.size.n as Number else $.metadata.m.s3.m.size.n,
+	createdAt: $.metadata.m.createdAt.s,
+	createdBy: $.metadata.m.createdBy.s,
+	updatedAt: $.metadata.m.updatedAt.s,
+	updatedBy: $.metadata.m.updatedBy.s
+}) filter ((item, index) -> (vars.attachments.items[index].attachmentInfo.s endsWith "#v0"))
+
+var totalCount = sizeOf(response default [])
+var startIndex = ((start - 1) * limit)
+var endIndex = if (totalCount > (startIndex + limit)) (startIndex + limit - 1) else totalCount - 1
+
+---
+{
+	"data": response[startIndex to endIndex] default [],
+	"start": start,
+	"limit": limit,
+	"total": totalCount
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+    </flow>
+    <flow name="get:\platform\sites\(siteId)\patients\(patientId)\attachments\(attachmentId):api-config">
+		<flow-ref doc:name="Get Patient" doc:id="dc28f5b0-c06c-452b-beac-a347bd0524d4" name="getPatient" target="patient" />
+		<flow-ref doc:name="Get Attachment By Id" doc:id="22afbb6a-f1e8-47f3-b86c-e4b53d6d2e3a" name="getAttachmentById" target="attachment"/>
+		<set-variable value="GET" doc:name="Set PreSigned - GET" doc:id="ad33cf5d-49a5-4cf8-a238-c5c05c3625c4" variableName="preSignedUrlMethod" />
+		<set-variable value="#[vars.attachment[0]]" doc:name="Set Attachment As Request Payload" doc:id="0f1ecb03-9b77-40ca-99f8-8cec0352d2d6" variableName="requestPayload"/>
+		<flow-ref doc:name="Get PreSigned URL For Download" doc:id="8a819268-e2f2-4941-9fab-d344320bae0f" name="getPreSignedUrl" target="preSignedUrl" />
+		<ee:transform doc:name="Transform Message" doc:id="d53272e2-09a5-4326-a61b-2b249f367cfc" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+var display = vars.attachment[0] - "attachmentInfo" - "s3"
+---
+display ++ {
+	preSignedUrl: vars.preSignedUrl
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+    </flow>
+    <flow name="post:\platform\sites\(siteId)\patients\(patientId)\attachments:application\json:api-config">
+		<flow-ref doc:name="Get Patient" doc:id="555bd310-2fcd-4d7c-90a0-10c398487e38" name="getPatient" target="patient" />
+		<set-variable value="#[payload]" doc:name="Set Request Payload" doc:id="faea7e20-5dae-44d2-88d8-a1d057481325" variableName="requestPayload"/>
+		<flow-ref doc:name="Get DynamoDb Details" doc:id="eec0a940-11a1-4083-a0a8-c61a57d0bdb3" name="dynamoDbDetails" target="dynamoDbDetails" />
+		<dynamodb:query doc:name="Get Attachment By Filename And AttachmentType" doc:id="1dd486b1-a05d-41aa-ad38-71a5aef1def3" config-ref="Amazon_DynamoDB_Configuration" keyConditionExpression='#["patientId = :patientId AND attachmentInfo = :attachmentInfo"]' select="ALL_ATTRIBUTES" tableName="#[vars.dynamoDbDetails.tableName]" filterExpression='#["isUploaded = :isUploaded"]' attributeValues='#[%dw 2.0
+output application/json
+---
+{
+	":isUploaded": {bool:true},
+	":patientId": {S: vars.dynamoDbDetails.patientId},
+	":attachmentInfo": {S: vars.requestPayload.attachmentType ++ "#" ++ vars.requestPayload.file ++ "#v0" }
+}]' target="attachment">
+			<reconnect />
+		</dynamodb:query>
+		<choice doc:name="If Exists" doc:id="22b5ac73-5f60-4305-a021-4eeea59c282d">
+			<when expression="#[vars.attachment.count &gt; 0]">
+				<raise-error doc:name="Raise error" doc:id="c94d42d9-a418-421e-a88e-37e6b5f25dd2" type="RESOURCE:DUPE" description="#['Attachment exists - attachmentId: $(vars.attachment.items[0].attachmentId.s)']" />
+			</when>
+		</choice>
+		<set-variable value="PUT" doc:name="Set PreSigned - PUT" doc:id="7596f871-1827-4227-98ba-1c0ea7aca61d" variableName="preSignedUrlMethod"/>
+		<flow-ref doc:name="Get PreSigned URL For Upload" doc:id="7f609d0b-1525-4667-b61c-a5bd49dcc228" name="getPreSignedUrl" target="preSignedUrl"/>
+		<foreach doc:name="For Each Attachment Sort Key" doc:id="dd27d768-ac2b-4002-b06d-b59a24269c38" collection='#[[
+	payload.attachmentType ++ "#" ++ payload.file ++ "#v0",
+	payload.attachmentType ++ "#" ++ payload.file ++ "#v1"
+]]'>
+			<set-variable value="#[payload]" doc:name="Set attachmentSortKey" doc:id="216219c4-593d-4d2a-8052-02cfe932c4bb" variableName="attachmentSortKey"/>
+			<flow-ref doc:name="Save Attachment To DB" doc:id="e20ec909-8913-4f62-a940-32d8f61b00fb" name="saveAttachmentToDynamoDb" />
+		</foreach>
+		<set-variable value="201" doc:name="Set Response Code" doc:id="72895754-1724-48b4-b903-b2d80fdd5a16" variableName="httpStatusCode" />
+		<ee:transform xsi:schemaLocation="http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+	correlationId: vars.correlationId,
+	timestamp: now() as Number,
+	id: vars.dynamoDbDetails.attachmentId,
+	data: {
+		preSignedUrl: vars.preSignedUrl
+	}
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+    </flow>
+	<sub-flow name="saveAttachmentToDynamoDb" doc:id="421f5051-e0c4-42c6-9d5e-156a4470dd5f" >
+		<ee:transform doc:name="Create DynamoDB Object" doc:id="c0f5d706-2210-46cb-8635-27ad44830ea1" >
+			<ee:message >
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="dynamoDbObject" ><![CDATA[%dw 2.0
+output application/json
+var currentDateTime = (now() >> "UTC") as String {format: "yyyy-MM-dd'T'HH:mm:ss.SSSX"}
+---
+{
+	patientId: {
+		S: vars.dynamoDbDetails.patientId
+	},
+	attachmentInfo : {
+		S: vars.attachmentSortKey
+	},
+	attachmentId: {
+		S: vars.dynamoDbDetails.attachmentId
+	},
+	isUploaded: {
+		bool: false
+	},	
+	metadata: {
+		M: {
+			s3: {
+				M: {}	
+			},
+			attachmentType: {
+				S: vars.dynamoDbDetails.attachmentType
+			},
+			file: {
+				S: vars.dynamoDbDetails.file
+			},
+			title: {
+				S: vars.dynamoDbDetails.title default ''
+			},
+			contentType: {
+				S: vars.dynamoDbDetails.contentType
+			},
+			version: {
+				S: vars.dynamoDbDetails.version
+			},
+			createdBy: {
+				S: vars.originalCreatedInfo.createdBy default vars.TenantDetails.sub
+			},
+			createdAt: {
+				S: vars.originalCreatedInfo.createdAt default currentDateTime
+			},
+			updatedBy: {
+				S: vars.TenantDetails.sub
+			},
+			updatedAt: {
+				S: currentDateTime
+			},			
+		}
+	}
+}]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<dynamodb:put-item doc:name="Save Attachment" doc:id="bfdcbfa0-566a-471b-b867-8f46073f8f06" config-ref="Amazon_DynamoDB_Configuration" tableName="#[vars.dynamoDbDetails.tableName]">
+			<reconnect />
+			<dynamodb:item ><![CDATA[#[vars.dynamoDbObject]]]></dynamodb:item>
+		</dynamodb:put-item>
+	</sub-flow>
+	<sub-flow name="getAttachmentById" doc:id="68032ec5-85fb-4b34-9a29-387ece040449" >
+		<flow-ref doc:name="Get Dynamo DB Details" doc:id="9ed687e5-2806-4e08-8894-49ceb3819322" name="dynamoDbDetails" target="dynamoDbDetails"/>
+		<dynamodb:query doc:name="Get Attachment By Id" doc:id="9c72ad38-1235-4b82-a112-518b300d1326" config-ref="Amazon_DynamoDB_Configuration" keyConditionExpression='#["patientId = :patientId"]' select="ALL_ATTRIBUTES" tableName="#[vars.dynamoDbDetails.tableName]" filterExpression='#["isUploaded = :isUploaded AND attachmentId = :attachmentId"]' attributeValues='#[{
+	":isUploaded": {bool:true},
+	":patientId": {S: vars.dynamoDbDetails.patientId},
+	":attachmentId": {S: vars.dynamoDbDetails.attachmentId}	
+}]' scanIndexForward="true">
+			<reconnect />
+		</dynamodb:query>
+		<choice doc:name="If Exists" doc:id="cfce2b39-737d-40d7-a71b-c530198d0227" >
+			<when expression="#[payload.count == 0]" >
+				<raise-error doc:name="Raise error" doc:id="83f0bd58-d819-4637-a427-f2a328b9d75c" type="RESOURCE:NOT_FOUND" description="Attachment is not found" />
+			</when>
+		</choice>
+		<ee:transform doc:name="Transform Message" doc:id="8349659c-2522-4a36-bd9a-1f51abaee05e" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+
+// Query results are always sorted by the sort key value (attachmentInfo) 
+// By default, the sort order is ascending. To reverse the order, set the 
+// ScanIndexForward parameter to false
+// https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_Query.html
+
+var response = payload.items map({
+	id: $.attachmentId.s,
+	attachmentInfo: $.attachmentInfo.s,
+	attachmentType: $.metadata.m.attachmentType.s,
+	contentType: $.metadata.m.contentType.s,
+	title: $.metadata.m.title.s,
+	file: $.metadata.m.file.s,
+	version: $.metadata.m.version.s,
+	hash: $.metadata.m.s3.m.eTag.s,
+	size: $.metadata.m.s3.m.size.n as Number,
+	createdAt: $.metadata.m.createdAt.s,
+	createdBy: $.metadata.m.createdBy.s,
+	updatedAt: $.metadata.m.updatedAt.s,
+	updatedBy: $.metadata.m.updatedBy.s,
+	s3: {
+		key: $.metadata.m.s3.m.key.s,
+		sequencer: $.metadata.m.s3.m.sequencer.s,
+		versionId: $.metadata.m.s3.m.versionId.s,
+		eTag: $.metadata.m.s3.m.eTag.s,
+		size: $.metadata.m.s3.m.size.n as Number
+	}
+})
+
+---
+response]]></ee:set-payload>
+			</ee:message>
+			<ee:variables >
+			</ee:variables>
+		</ee:transform>
+	</sub-flow>
+	<sub-flow name="getPreSignedUrl" doc:id="43c8e650-5e9b-49a3-bdbe-994c2d843466" >
+		<ee:transform doc:name="Create S3 Details" doc:id="13e84461-2406-46ed-8f0c-1d6682b68c4e">
+			<ee:message />
+			<ee:variables>
+				<ee:set-variable variableName="s3Details"><![CDATA[%dw 2.0
+output application/java
+---
+{
+	key: "patients/" ++ attributes.uriParams.patientId ++ "/" ++ vars.requestPayload.attachmentType ++ "/" ++ vars.requestPayload.file,
+	bucket: p('mule.env') ++ '-' ++ attributes.headers.tenantId ++ "-tenant-private",
+	method: vars.preSignedUrlMethod
+}]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<s3:create-object-presigned-uri doc:name="Create Pre-Signed URL" doc:id="f8ce1c2f-829e-4d6e-baab-da0ea54242b6" config-ref="Amazon_S3_Configuration" bucketName="#[vars.s3Details.bucket]" key="#[vars.s3Details.key]" method="#[vars.s3Details.method]">
+			<reconnect />
+		</s3:create-object-presigned-uri>
+	</sub-flow>
+	<sub-flow name="dynamoDbDetails" doc:id="64cc248c-ec80-480a-8cc5-75730aeff5a2" >
+		<ee:transform doc:name="Create Details To Save To DynamoDB " doc:id="1a0b114a-57f2-416b-86f1-d92acc2d7eee">
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+var requestPayload = vars.requestPayload default {}
+---
+{
+	tableName: p('mule.env') ++ '-' ++ attributes.headers.tenantId ++ "-attachments-patients",
+	patientId: attributes.uriParams.patientId,
+	attachmentId: attributes.uriParams.attachmentId default uuid()
+} ++ requestPayload]]></ee:set-payload>
+			</ee:message>
+			<ee:variables>
+			</ee:variables>
+		</ee:transform>
+	</sub-flow>
+	
+	
+	
+	
+	
+</mule>

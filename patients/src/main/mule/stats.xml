@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:dynamodb="http://www.mulesoft.org/schema/mule/dynamodb"
+	xmlns:s3="http://www.mulesoft.org/schema/mule/s3"
+	xmlns:validation="http://www.mulesoft.org/schema/mule/validation" xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking"
+	xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns:json-logger="http://www.mulesoft.org/schema/mule/json-logger"
+	xmlns:scripting="http://www.mulesoft.org/schema/mule/scripting" xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:min-log="http://www.mulesoft.org/schema/mule/min-log" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+	http://www.mulesoft.org/schema/mule/min-log http://www.mulesoft.org/schema/mule/min-log/current/mule-min-log.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/scripting http://www.mulesoft.org/schema/mule/scripting/current/mule-scripting.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/json-logger http://www.mulesoft.org/schema/mule/json-logger/current/mule-json-logger.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd
+http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd
+http://www.mulesoft.org/schema/mule/s3 http://www.mulesoft.org/schema/mule/s3/current/mule-s3.xsd
+http://www.mulesoft.org/schema/mule/dynamodb http://www.mulesoft.org/schema/mule/dynamodb/current/mule-dynamodb.xsd">
+	
+	
+    <flow name="get:\platform\sites\(siteId)\patients\(patientId)\stats:api-config">
+		<set-variable value='#[(read(attributes.headers.sessionRoles, "application/json")) distinctBy $]' doc:name="Session Roles" doc:id="a36ab844-b43a-4f86-a237-e3eb8f9b157e" variableName="sessionRoles"/>
+		<flow-ref doc:name="Check Role Permission" doc:id="dc5439c7-9665-4bcf-84aa-d196f0122a2d" name="checkRolePermission" target="isRolePermitted"/>
+		<flow-ref doc:name="Get Patient" doc:id="359e7e7e-a1fb-49e2-8274-3045061dc8f0" name="getPatient" target="patient" />
+		<flow-ref doc:name="Check If Nurse And Patient Is A Contact" doc:id="ee3a6e4e-e528-4d4d-8f4b-7599a07bf47f" name="checkNursePatientContactRelation" target="isNursePatientContact"/>
+		<flow-ref doc:name="Get Dynamo DB Details" doc:id="361e7263-4ba8-4e87-946d-1f30fd8c08cf" name="dynamoDbDetails" target="dynamoDbDetails" />
+		<scatter-gather doc:name="Get Counts" doc:id="b6350d1b-caee-47be-825f-04ceea0a49ac" >
+			<route >
+				<logger level="INFO" doc:name="Logger" doc:id="01d767fb-5393-4d69-96e1-2667bf13f7a2" message="Getting Photo Count - Start"/>
+				<flow-ref doc:name="Get Attachment Photo Count" doc:id="413b95be-0da0-476f-9df5-42ecd62ef92a" name="getAttachmentPhotoCount" target="attachmentPhotoCount"/>
+			</route>
+			<route >
+				<logger level="INFO" doc:name="Logger" doc:id="8993b803-1e72-4951-acd0-07c0f44332cd" message="Getting Document Count - Start"/>
+				<flow-ref doc:name="Get Attachment Document Count" doc:id="0ea3a32d-f74b-403d-8ea8-94ccd0554f74" name="getAttachmentDocumentCount" target="attachmentDocumentCount"/>
+			</route>
+			<route >
+				<logger level="INFO" doc:name="Logger" doc:id="2bbd61d3-ec9b-439c-a3e2-9b62294d542b" message="Getting Emergency Contact Count - Start"/>
+				<flow-ref doc:name="Get Emergency Contact Count" doc:id="8fdb4819-cc4c-4e11-bd02-bf7389ade75a" name="getEmergencyContactCount" target="emergencyContactcount"/>
+			</route>
+			<route >
+				<logger level="INFO" doc:name="Logger" doc:id="cc62277b-eb47-47b0-ba40-5e3b8a7cb749" message="Getting Staff Contact Count - Start"/>
+				<flow-ref doc:name="Get Staff Contact Count" doc:id="5662e78f-9188-4a37-b2be-88efe1885da0" name="getStaffContactCount" target="staffContactCount"/>
+			</route>
+		</scatter-gather>
+		<ee:transform doc:name="Transform Message" doc:id="03f5eeeb-b174-4d2c-96f7-ef81bdc613dd" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	count: {
+		document: vars.attachmentDocumentCount,
+		photo: vars.attachmentPhotoCount,
+		emergencyContact: vars.emergencyContactCount[0].count,
+		staffContact: vars.staffContactCount[0].count
+	}
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+    </flow>
+	<sub-flow name="getAttachmentDocumentCount" doc:id="fc259182-b64f-43f8-b6c8-b67c7884bb90" >
+		<set-variable value="document" doc:name="Attachment Type Document" doc:id="a1350bd8-d444-4f6a-bf9d-2f55414c68a5" variableName="attachmentType" />
+		<flow-ref doc:name="Get Attachment" doc:id="b9a22730-8ec0-44fa-842c-55f3e147d59e" name="getAttachmentCount" />
+	</sub-flow>
+	<sub-flow name="getAttachmentPhotoCount" doc:id="b3a99f91-599b-4639-a9e6-7d2bc7dd2625" >
+		<set-variable value="photo" doc:name="Attachment Type Photo" doc:id="af0596e3-9906-4780-969f-1ebcd0e1d075" variableName="attachmentType"/>
+		<flow-ref doc:name="Get Attachment" doc:id="0216a321-3802-4c9e-96eb-35b7bed9449d" name="getAttachmentCount"/>
+	</sub-flow>
+	<sub-flow name="getStaffContactCount" doc:id="f8b34bd9-349d-41fa-83c3-d707e5e9d784" >
+		<set-variable value="StaffContacts" doc:name="Table Name StaffContacts" doc:id="4aa78d2c-d10b-4dac-9106-7bc2c2c8420b" variableName="tableName"/>
+		<flow-ref doc:name="Get Contact Count" doc:id="4a90a259-2bb2-4a88-a59f-4add80e68c62" name="getContactCount"/>
+	</sub-flow>
+	<sub-flow name="getEmergencyContactCount" doc:id="22e63514-7d72-428a-ab93-f97779ef1130">
+		<set-variable value="EmergencyContacts" doc:name="Table Name EmergencyContacts" doc:id="d6ac852f-2153-457c-9fe8-a2f47a7eb1b5" variableName="tableName" />
+		<flow-ref doc:name="Get Contact Count" doc:id="9e857473-b0bc-40a1-be2b-234ae6c7a5ef" name="getContactCount" />
+	</sub-flow>
+	<sub-flow name="getAttachmentCount" doc:id="9b32885e-74c3-48c9-8c96-bafb697126a7" >
+		<dynamodb:query doc:name="Get All Attachments For Patient" doc:id="695ecff4-9234-4654-8275-91759461ef30" config-ref="Amazon_DynamoDB_Configuration" keyConditionExpression='#["patientId = :patientId AND begins_with(attachmentInfo, :attachmentType)"]' select="ALL_ATTRIBUTES" tableName="#[vars.dynamoDbDetails.tableName]" filterExpression='#["isUploaded = :isUploaded"]' target="attachments" attributeValues='#[%dw 2.0
+output application/json
+---
+{
+	":isUploaded": {bool:true},
+	":patientId": {S: vars.dynamoDbDetails.patientId},
+	":attachmentType": {S: vars.attachmentType ++ "#"}
+}]' />
+		<ee:transform doc:name="Transform Message" doc:id="2bbd4e5d-feca-4be2-9897-86a6b5daa7d2" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+import isNumeric from dw::core::Strings
+
+// Iterate through the payload and filter only the latest version
+// (i.e. attachmentInfo that ends with "#v0")
+// We're filtering here because DynamoDB query does not support
+// CONTAINS on KeyConditionExpression
+var response = vars.attachments.items map({
+	id: $.attachmentId.s,
+	attachmentType: $.metadata.m.attachmentType.s,
+	contentType: $.metadata.m.contentType.s,
+	title: $.metadata.m.title.s,
+	file: $.metadata.m.file.s,
+	version: $.metadata.m.version.s,
+	hash: $.metadata.m.s3.m.eTag.s,
+	size: if (isNumeric($.metadata.m.s3.m.size.n)) $.metadata.m.s3.m.size.n as Number else $.metadata.m.s3.m.size.n,
+	createdAt: $.metadata.m.createdAt.s,
+	createdBy: $.metadata.m.createdBy.s,
+	updatedAt: $.metadata.m.updatedAt.s,
+	updatedBy: $.metadata.m.updatedBy.s
+}) filter ((item, index) -> (vars.attachments.items[index].attachmentInfo.s endsWith "#v0"))
+
+---
+sizeOf(response default [])]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</sub-flow>
+	<sub-flow name="getContactCount" doc:id="7c6c01ff-5ad3-4998-9081-016b4a50c0e2" >
+		<db:select doc:name="Get Contact Count" doc:id="6ca29a09-065e-4348-8fc0-24acc2abb546" config-ref="Database_Config" >
+			<db:sql ><![CDATA[#["select count(t.id) as count
+from $(vars.tableName) t
+inner join Patients p on p.id = t.patientId
+where p.siteUuid = :siteId
+and p.uuid = :patientId"]]]></db:sql>
+			<db:input-parameters ><![CDATA[#[{
+	"siteId": attributes.uriParams.siteId,
+	"patientId": attributes.uriParams.patientId
+}]]]></db:input-parameters>
+		</db:select>
+	</sub-flow>
+	<sub-flow name="checkRolePermission" doc:id="1ae920f7-3b0c-4aa9-b082-a0313da4fd61" >
+		<set-variable value='#[%dw 2.0
+output application/java
+
+var excludeRoles = ["StudyMonitor", "Sponsor"]
+var sessionRoles = vars.sessionRoles default []
+var finalRoles = sessionRoles -- excludeRoles
+---
+sizeOf(finalRoles) &gt; 0]' doc:name="Set Variable" doc:id="36a19c89-c04f-4492-9a18-0df9d845298d" variableName="isRolePermitted"/>
+		<choice doc:name="Choice" doc:id="b3a14603-940c-4f0a-952c-d3430811a267" >
+			<when expression="#[vars.isRolePermitted == false]">
+				<logger level="INFO" doc:name="Logger" doc:id="75bae885-fd20-4e74-a449-9ce2b686b6fe" message='#[{
+	error: "Staff is not authorized to look at patient stats",
+	data: {
+		role: vars.assignedRoles
+	}
+}]'/>
+				<raise-error doc:name="Raise error" doc:id="dae6ad22-0e70-4ff0-b8e1-a0f819417866" type="RESOURCE:FORBIDDEN" description='Staff is not authorized to look at this resource'/>
+			</when>
+			<otherwise >
+				<set-payload value="#[true]" doc:name="Set Payload" doc:id="a36c4474-ad8f-4f75-ae9a-dd1cf605d030" />
+			</otherwise>
+		</choice>
+	</sub-flow>
+	<sub-flow name="checkNursePatientContactRelation" doc:id="c06dd0f5-4857-4a31-8ff8-15ce8c435ab0" >
+		<choice doc:name="Choice" doc:id="a415e9e2-fcd2-4f01-9b6a-334de84748d5" >
+			<when expression='#[(sizeOf(vars.sessionRoles) == 1) and (vars.sessionRoles[0] == "Nurse")]'>
+				<db:select doc:name="Select Patient Contacts" doc:id="40486211-5dad-44de-bbec-5079408e5391" config-ref="Database_Config" target="staffPatientContactCount" >
+					<reconnect />
+					<db:sql ><![CDATA[select count(sc.id) as count
+from StaffContacts sc
+inner join Patients p on p.id = sc.patientId
+where p.uuid = :patientId
+and sc.userUuid = :userId
+limit 1;]]></db:sql>
+					<db:input-parameters ><![CDATA[#[{
+	"patientId": attributes.uriParams.patientId,
+	"userId": attributes.headers."user-uuid"
+}]]]></db:input-parameters>
+				</db:select>
+				<choice doc:name="Choice" doc:id="548c4d9c-aad7-441e-afc4-9a777f5bc0f8" >
+					<when expression="#[vars.staffPatientContactCount[0].count == 0]">
+						<logger level="INFO" doc:name="Logger" doc:id="aec8b5b0-cf4c-40c2-8e8b-2a62224ef0d5" message='#[{
+	error: "Staff user is not a contact for this patient",
+	data: {
+		"patientId": attributes.uriParams.patientId,
+		"staffUserId": attributes.headers."user-uuid"
+	}
+}]'/>
+						<raise-error doc:name="Raise error" doc:id="eaa2e968-e63d-492f-bf73-207d48ebe7e0" type="RESOURCE:FORBIDDEN" description="Staff user is not a contact for this patient" />
+					</when>
+					<otherwise>
+						<set-payload value="#[true]" doc:name="Set Payload" doc:id="1ca0fd16-7084-46eb-b95d-ce7fd1dbf6d1" />
+					</otherwise>
+				</choice>
+			</when>
+			<otherwise >
+				<set-payload value="#[true]" doc:name="Set Payload" doc:id="01fc4c23-38bd-4391-8c4c-388f48b8a789" />
+			</otherwise>
+		</choice>
+	</sub-flow>
+  
+	
+	
+</mule>
